@@ -1,4 +1,4 @@
-# Starfish Pharma Demo Data Generator
+# Starfish Pharma Demo Data Generator v1
 
 A tool to generate dummy pharmaceutical research data and configure Starfish zones, tag sets, and user permissions for demonstration and testing purposes.
 
