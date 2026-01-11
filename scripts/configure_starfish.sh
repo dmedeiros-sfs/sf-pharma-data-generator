@@ -32,19 +32,16 @@ else
     DRY_RUN=false
 fi
 
-# Function to run or print sf command
-run_sf() {
-    local cmd="$*"
-    echo "  $ sf $cmd" | tee -a "$LOG_FILE"
-    
-    if [ "$DRY_RUN" = false ]; then
-        sf $cmd 2>&1 | tee -a "$LOG_FILE" || true
-    fi
-}
-
-# Assume there's a volume called pharma_vol mapping to /mnt/efs
-# This would normally be created during Starfish installation
-VOLUME_NAME="pharma_vol"
+# Assume there's a volume - we need to find it or use a default
+# Try to get the first available volume from sf volume list
+VOLUME_NAME=""
+if [ "$DRY_RUN" = false ]; then
+    VOLUME_NAME=$(sf volume list --format "{name}" 2>/dev/null | head -1 || echo "")
+fi
+if [ -z "$VOLUME_NAME" ]; then
+    VOLUME_NAME="pharma_vol"
+    echo "Note: Using default volume name '$VOLUME_NAME'. Adjust if needed." | tee -a "$LOG_FILE"
+fi
 
 echo "" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
@@ -59,14 +56,21 @@ for tagset in $tagsets; do
     
     echo "" | tee -a "$LOG_FILE"
     echo "Creating tag set: $tagset" | tee -a "$LOG_FILE"
-    run_sf tagset add "$tagset" --description "\"$description\"" --pinnable --inheritable
+    echo "  $ sf tagset add $tagset --description \"$description\" --pinnable --inheritable" | tee -a "$LOG_FILE"
+    
+    if [ "$DRY_RUN" = false ]; then
+        sf tagset add "$tagset" --description "$description" --pinnable --inheritable 2>&1 | tee -a "$LOG_FILE" || true
+    fi
     
     # Add tags to the tag set
     tags=$(jq -r ".tagsets[] | select(.name==\"$tagset\") | .tags[]" "$CONFIG_FILE")
     
     for tag in $tags; do
         echo "  Adding tag: $tag" | tee -a "$LOG_FILE"
-        run_sf tagset tag add "$tagset" "$tag"
+        echo "  $ sf tagset tag add $tagset $tag" | tee -a "$LOG_FILE"
+        if [ "$DRY_RUN" = false ]; then
+            sf tagset tag add "$tagset" "$tag" 2>&1 | tee -a "$LOG_FILE" || true
+        fi
     done
 done
 
@@ -80,23 +84,32 @@ zones=$(jq -r '.zones[] | .name' "$CONFIG_FILE")
 
 for zone in $zones; do
     description=$(jq -r ".zones[] | select(.name==\"$zone\") | .description" "$CONFIG_FILE")
-    zone_path=$(jq -r ".zones[] | select(.name==\"$zone\") | .path" "$CONFIG_FILE")
     
     echo "" | tee -a "$LOG_FILE"
     echo "Creating zone: $zone" | tee -a "$LOG_FILE"
     
     # Create the zone
-    run_sf zone add "$zone" --description "\"$description\""
+    echo "  $ sf zone add $zone --description \"$description\"" | tee -a "$LOG_FILE"
+    if [ "$DRY_RUN" = false ]; then
+        sf zone add "$zone" --description "$description" 2>&1 | tee -a "$LOG_FILE" || true
+    fi
     
-    # Add path to zone (assuming volume exists)
-    # Format: VOLUME:/relative/path or just use path if volume is guessed
-    echo "  Adding path to zone: $VOLUME_NAME:${zone_path#/mnt/efs/}" | tee -a "$LOG_FILE"
-    run_sf zone path add "$zone" "$VOLUME_NAME:/${zone##*/}"
+    # Add path to zone
+    # Path format: VOLUME:/relative_path
+    echo "  Adding path: $VOLUME_NAME:/$zone" | tee -a "$LOG_FILE"
+    echo "  $ sf zone path add $zone $VOLUME_NAME:/$zone" | tee -a "$LOG_FILE"
+    if [ "$DRY_RUN" = false ]; then
+        sf zone path add "$zone" "$VOLUME_NAME:/$zone" 2>&1 | tee -a "$LOG_FILE" || true
+    fi
     
     # Add capabilities to zone
     echo "  Adding capabilities: TagApplier, RecoverExecutor" | tee -a "$LOG_FILE"
-    run_sf zone capability add "$zone" TagApplier --delegable
-    run_sf zone capability add "$zone" RecoverExecutor --delegable
+    echo "  $ sf zone capability add $zone TagApplier --delegable" | tee -a "$LOG_FILE"
+    echo "  $ sf zone capability add $zone RecoverExecutor --delegable" | tee -a "$LOG_FILE"
+    if [ "$DRY_RUN" = false ]; then
+        sf zone capability add "$zone" TagApplier --delegable 2>&1 | tee -a "$LOG_FILE" || true
+        sf zone capability add "$zone" RecoverExecutor --delegable 2>&1 | tee -a "$LOG_FILE" || true
+    fi
 done
 
 echo "" | tee -a "$LOG_FILE"
@@ -105,9 +118,6 @@ echo "STEP 3: Assigning Zone Admins" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
 
 # Assign zone admins
-# dthompson -> clinical_trials
-# mwatson -> drug_discovery, regulatory
-
 users=$(jq -r '.users[] | .username' "$CONFIG_FILE")
 
 for user in $users; do
@@ -117,7 +127,10 @@ for user in $users; do
         [ -z "$zone" ] && continue
         echo "" | tee -a "$LOG_FILE"
         echo "Adding $user as admin of zone: $zone" | tee -a "$LOG_FILE"
-        run_sf zone member add "$zone" --username "$user" --admin
+        echo "  $ sf zone member add $zone --username $user --admin" | tee -a "$LOG_FILE"
+        if [ "$DRY_RUN" = false ]; then
+            sf zone member add "$zone" --username "$user" --admin 2>&1 | tee -a "$LOG_FILE" || true
+        fi
     done
 done
 
@@ -133,7 +146,10 @@ for user in $users; do
         [ -z "$zone" ] && continue
         echo "" | tee -a "$LOG_FILE"
         echo "Adding $user as member of zone: $zone" | tee -a "$LOG_FILE"
-        run_sf zone member add "$zone" --username "$user"
+        echo "  $ sf zone member add $zone --username $user" | tee -a "$LOG_FILE"
+        if [ "$DRY_RUN" = false ]; then
+            sf zone member add "$zone" --username "$user" 2>&1 | tee -a "$LOG_FILE" || true
+        fi
     done
 done
 
@@ -149,7 +165,10 @@ for tagset in $tagsets; do
         [ -z "$zone" ] && continue
         echo "" | tee -a "$LOG_FILE"
         echo "Binding tag set '$tagset' to zone '$zone'" | tee -a "$LOG_FILE"
-        run_sf tagset zone add "$tagset" "$zone"
+        echo "  $ sf tagset zone add $tagset $zone" | tee -a "$LOG_FILE"
+        if [ "$DRY_RUN" = false ]; then
+            sf tagset zone add "$tagset" "$zone" 2>&1 | tee -a "$LOG_FILE" || true
+        fi
     done
 done
 
@@ -160,9 +179,15 @@ echo "==========================================================================
 
 echo "" | tee -a "$LOG_FILE"
 echo "Creating global role 'PharmaTaggers' for all zone users" | tee -a "$LOG_FILE"
-run_sf role global add PharmaTaggers --description "\"Allow all zone users to apply tags\""
-run_sf role global grant PharmaTaggers TagApplier
-run_sf role global zone add PharmaTaggers --all-zones
+echo "  $ sf role global add PharmaTaggers" | tee -a "$LOG_FILE"
+echo "  $ sf role global grant PharmaTaggers TagApplier" | tee -a "$LOG_FILE"
+echo "  $ sf role global zone add PharmaTaggers --all-zones" | tee -a "$LOG_FILE"
+
+if [ "$DRY_RUN" = false ]; then
+    sf role global add PharmaTaggers 2>&1 | tee -a "$LOG_FILE" || true
+    sf role global grant PharmaTaggers TagApplier 2>&1 | tee -a "$LOG_FILE" || true
+    sf role global zone add PharmaTaggers --all-zones 2>&1 | tee -a "$LOG_FILE" || true
+fi
 
 echo "" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
@@ -172,9 +197,15 @@ echo "==========================================================================
 for zone in $zones; do
     echo "" | tee -a "$LOG_FILE"
     echo "Creating recovery role for zone: $zone" | tee -a "$LOG_FILE"
-    run_sf zone role add "$zone" LocalRestorers --description "\"Allow recovery in $zone\""
-    run_sf zone role grant "${zone}.LocalRestorers" RecoverExecutor
-    run_sf zone role member add "${zone}.LocalRestorers" --all-members
+    echo "  $ sf zone role add $zone LocalRestorers" | tee -a "$LOG_FILE"
+    echo "  $ sf zone role grant ${zone}.LocalRestorers RecoverExecutor" | tee -a "$LOG_FILE"
+    echo "  $ sf zone role member add ${zone}.LocalRestorers --all-members" | tee -a "$LOG_FILE"
+    
+    if [ "$DRY_RUN" = false ]; then
+        sf zone role add "$zone" LocalRestorers 2>&1 | tee -a "$LOG_FILE" || true
+        sf zone role grant "${zone}.LocalRestorers" RecoverExecutor 2>&1 | tee -a "$LOG_FILE" || true
+        sf zone role member add "${zone}.LocalRestorers" --all-members 2>&1 | tee -a "$LOG_FILE" || true
+    fi
 done
 
 echo "" | tee -a "$LOG_FILE"
