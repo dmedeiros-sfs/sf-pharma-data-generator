@@ -107,13 +107,47 @@ Medical research areas: `oncology`, `cardiology`, `neurology`, `immunology`, `in
 | `generate_data.sh`         | Generate user home directory data                    |
 | `generate_shared_data.sh`  | Generate shared zone data in /mnt/efs/               |
 | `configure_starfish.sh`    | Create zones, tag sets, assign permissions           |
+| `setup_archive_demo.sh`    | Create archive targets and run demo archive/restore jobs |
 | `cleanup.sh`               | Remove all data and/or Starfish configuration        |
+| `cleanup_archive_demo.sh`  | Remove archive demo configuration only               |
 | `stats.sh`                 | Display current status and statistics                |
+
+## Archive Demo (Optional)
+
+After running the main setup, you can create archive targets and run demo jobs:
+
+```bash
+sudo ./scripts/setup_archive_demo.sh
+```
+
+This creates:
+
+**Simulated Archive Volumes:**
+| Volume Name | Mount Point       | Purpose                     |
+|-------------|-------------------|-----------------------------|
+| sim-nfs     | /mnt/sim-nfs      | Simulated NFS archive       |
+| sim-lustre  | /mnt/sim-lustre   | Simulated Lustre archive    |
+| sim-s3      | /mnt/sim-s3       | Simulated S3 archive        |
+
+**Archive Targets:**
+| Target Name     | Destination Volume | Path      |
+|-----------------|-------------------|-----------|
+| atg-sim-nfs     | sim-nfs           | /archives |
+| atg-sim-lustre  | sim-lustre        | /archives |
+| atg-sim-s3      | sim-s3            | /archives |
+
+**Demo Jobs Run:**
+1. **Copy** dthompson's data to atg-sim-nfs
+2. **Copy** mwatson's data to atg-sim-lustre
+3. **Migrate** (move) sleung's data to atg-sim-s3
+4. **Restore** sleung's data from atg-sim-s3
+
+These jobs create records visible in the Starfish GUI under Jobs.
 
 ## Cleanup
 
 ```bash
-# Remove everything
+# Remove everything (including archive demo)
 sudo ./scripts/cleanup.sh --all -y
 
 # Remove only data (keep Starfish config)
@@ -121,6 +155,12 @@ sudo ./scripts/cleanup.sh --data-only -y
 
 # Remove only Starfish config (keep data)
 sudo ./scripts/cleanup.sh --starfish-only -y
+
+# Remove only archive demo config
+sudo ./scripts/cleanup.sh --archive-demo -y
+
+# Or use the standalone archive cleanup script
+sudo ./scripts/cleanup_archive_demo.sh -y
 ```
 
 ## Chroot Compatibility
@@ -188,13 +228,15 @@ All operations are logged to `output/`:
 
 ## Notes
 
-1. **Volume Configuration**: The Starfish configuration assumes a volume named `pharma_vol` exists. Adjust `configure_starfish.sh` if your volume has a different name.
+1. **Volume Configuration**: The script creates:
+   - One volume per user (e.g., `dthompson` at `/home/dthompson`)
+   - One shared volume `efs` at `/mnt/efs` for zone data
 
 2. **Small Data Size**: Total data generated is intentionally small (< 5MB) for quick testing.
 
 3. **User rmorgan**: This user has no zone access - demonstrating a user who can only see their personal files.
 
-4. **Dry Run Mode**: If the `sf` command is not available, scripts will print the commands that would be executed.
+4. **Idempotent**: Scripts can be re-run safely - they check if resources exist before creating.
 
 ## License
 
