@@ -1,0 +1,183 @@
+#!/bin/bash
+#
+# setup_all.sh - Complete setup script for Starfish Pharma Demo
+#
+# This script runs all setup steps in sequence:
+# 1. Create users
+# 2. Generate user home data
+# 3. Generate shared zone data
+# 4. Configure Starfish (zones, tagsets, permissions)
+#
+# Options:
+#   --skip-users       Skip user creation
+#   --skip-data        Skip data generation
+#   --skip-starfish    Skip Starfish configuration
+#   --clean-first      Run cleanup before setup
+#
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOG_FILE="$SCRIPT_DIR/../output/setup_all.log"
+
+mkdir -p "$SCRIPT_DIR/../output"
+
+# Parse arguments
+SKIP_USERS=false
+SKIP_DATA=false
+SKIP_STARFISH=false
+CLEAN_FIRST=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --skip-users)
+            SKIP_USERS=true
+            shift
+            ;;
+        --skip-data)
+            SKIP_DATA=true
+            shift
+            ;;
+        --skip-starfish)
+            SKIP_STARFISH=true
+            shift
+            ;;
+        --clean-first)
+            CLEAN_FIRST=true
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: $0 [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --skip-users       Skip user creation"
+            echo "  --skip-data        Skip data generation"
+            echo "  --skip-starfish    Skip Starfish configuration"
+            echo "  --clean-first      Run cleanup before setup"
+            echo "  -h, --help         Show this help"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
+
+cat <<'BANNER'
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                                                                               ║
+║   ███████╗████████╗ █████╗ ██████╗ ███████╗██╗███████╗██╗  ██╗                ║
+║   ██╔════╝╚══██╔══╝██╔══██╗██╔══██╗██╔════╝██║██╔════╝██║  ██║                ║
+║   ███████╗   ██║   ███████║██████╔╝█████╗  ██║███████╗███████║                ║
+║   ╚════██║   ██║   ██╔══██║██╔══██╗██╔══╝  ██║╚════██║██╔══██║                ║
+║   ███████║   ██║   ██║  ██║██║  ██║██║     ██║███████║██║  ██║                ║
+║   ╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚═╝  ╚═╝                ║
+║                                                                               ║
+║                     PHARMA DEMO DATA GENERATOR                                ║
+║                                                                               ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+BANNER
+
+echo "" | tee -a "$LOG_FILE"
+echo "=== Setup Started: $(date) ===" | tee -a "$LOG_FILE"
+echo "" | tee -a "$LOG_FILE"
+
+# Clean first if requested
+if [ "$CLEAN_FIRST" = true ]; then
+    echo "Running cleanup first..." | tee -a "$LOG_FILE"
+    "$SCRIPT_DIR/cleanup.sh" --all -y
+    echo "" | tee -a "$LOG_FILE"
+fi
+
+# Step 1: Create Users
+if [ "$SKIP_USERS" = false ]; then
+    echo "═══════════════════════════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
+    echo "STEP 1: Creating Users" | tee -a "$LOG_FILE"
+    echo "═══════════════════════════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
+    "$SCRIPT_DIR/create_users.sh"
+    echo "" | tee -a "$LOG_FILE"
+else
+    echo "Skipping user creation (--skip-users)" | tee -a "$LOG_FILE"
+fi
+
+# Step 2: Generate User Home Data
+if [ "$SKIP_DATA" = false ]; then
+    echo "═══════════════════════════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
+    echo "STEP 2: Generating User Home Data" | tee -a "$LOG_FILE"
+    echo "═══════════════════════════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
+    "$SCRIPT_DIR/generate_data.sh"
+    echo "" | tee -a "$LOG_FILE"
+    
+    echo "═══════════════════════════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
+    echo "STEP 3: Generating Shared Zone Data" | tee -a "$LOG_FILE"
+    echo "═══════════════════════════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
+    "$SCRIPT_DIR/generate_shared_data.sh"
+    echo "" | tee -a "$LOG_FILE"
+else
+    echo "Skipping data generation (--skip-data)" | tee -a "$LOG_FILE"
+fi
+
+# Step 3: Configure Starfish
+if [ "$SKIP_STARFISH" = false ]; then
+    echo "═══════════════════════════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
+    echo "STEP 4: Configuring Starfish (Zones, Tag Sets, Permissions)" | tee -a "$LOG_FILE"
+    echo "═══════════════════════════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
+    "$SCRIPT_DIR/configure_starfish.sh"
+    echo "" | tee -a "$LOG_FILE"
+else
+    echo "Skipping Starfish configuration (--skip-starfish)" | tee -a "$LOG_FILE"
+fi
+
+# Final Summary
+echo "" | tee -a "$LOG_FILE"
+echo "═══════════════════════════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
+echo "SETUP COMPLETE" | tee -a "$LOG_FILE"
+echo "═══════════════════════════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
+
+echo "" | tee -a "$LOG_FILE"
+echo "Users Created (password = username):" | tee -a "$LOG_FILE"
+echo "  dthompson  - Dr. Diana Thompson (Clinical Research Director) - Zone Admin: clinical_trials" | tee -a "$LOG_FILE"
+echo "  mwatson    - Dr. Michael Watson (Drug Discovery Lead)        - Zone Admin: drug_discovery, regulatory" | tee -a "$LOG_FILE"
+echo "  sleung     - Dr. Sarah Leung (Pharmacovigilance Manager)     - Zone Member: clinical_trials" | tee -a "$LOG_FILE"
+echo "  jbaker     - Dr. James Baker (Manufacturing QA Lead)         - Zone Member: drug_discovery" | tee -a "$LOG_FILE"
+echo "  nromero    - Dr. Nina Romero (Regulatory Affairs Director)   - Zone Member: regulatory" | tee -a "$LOG_FILE"
+echo "  kpatel     - Dr. Kiran Patel (Senior Biostatistician)        - Zone Member: clinical_trials, drug_discovery" | tee -a "$LOG_FILE"
+echo "  akim       - Dr. Amy Kim (Medical Writer)                    - Zone Member: drug_discovery, regulatory" | tee -a "$LOG_FILE"
+echo "  rmorgan    - Dr. Robert Morgan (Research Associate)          - NO ZONE (personal files only)" | tee -a "$LOG_FILE"
+
+echo "" | tee -a "$LOG_FILE"
+echo "Zones:" | tee -a "$LOG_FILE"
+echo "  clinical_trials  - /mnt/efs/clinical_trials  (Clinical trial data)" | tee -a "$LOG_FILE"
+echo "  drug_discovery   - /mnt/efs/drug_discovery   (Drug discovery research)" | tee -a "$LOG_FILE"
+echo "  regulatory       - /mnt/efs/regulatory       (Regulatory submissions)" | tee -a "$LOG_FILE"
+
+echo "" | tee -a "$LOG_FILE"
+echo "Tag Sets:" | tee -a "$LOG_FILE"
+echo "  document_status   - Tags: draft, in_review, approved, archived, superseded" | tee -a "$LOG_FILE"
+echo "  confidentiality   - Tags: public, internal, confidential, restricted, top_secret" | tee -a "$LOG_FILE"
+echo "  therapeutic_area  - Tags: oncology, cardiology, neurology, immunology, infectious_disease, rare_disease" | tee -a "$LOG_FILE"
+
+echo "" | tee -a "$LOG_FILE"
+echo "Data Locations:" | tee -a "$LOG_FILE"
+echo "  User homes:    /home/{username}/research/" | tee -a "$LOG_FILE"
+echo "  Shared zones:  /mnt/efs/{clinical_trials,drug_discovery,regulatory}/" | tee -a "$LOG_FILE"
+
+echo "" | tee -a "$LOG_FILE"
+echo "=== Setup Completed: $(date) ===" | tee -a "$LOG_FILE"
+
+echo "" | tee -a "$LOG_FILE"
+echo "════════════════════════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
+echo "OPTIONAL: Run Archive Demo" | tee -a "$LOG_FILE"
+echo "════════════════════════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
+echo "" | tee -a "$LOG_FILE"
+echo "To create archive targets and run demo archive/restore jobs, run:" | tee -a "$LOG_FILE"
+echo "" | tee -a "$LOG_FILE"
+echo "  ./scripts/setup_archive_demo.sh" | tee -a "$LOG_FILE"
+echo "" | tee -a "$LOG_FILE"
+echo "This will:" | tee -a "$LOG_FILE"
+echo "  - Create simulated archive volumes (sim-nfs, sim-lustre, sim-s3)" | tee -a "$LOG_FILE"
+echo "  - Create archive targets (atg-sim-nfs, atg-sim-lustre, atg-sim-s3)" | tee -a "$LOG_FILE"
+echo "  - Run archive jobs (copy and migrate)" | tee -a "$LOG_FILE"
+echo "  - Run a restore job" | tee -a "$LOG_FILE"
+echo "" | tee -a "$LOG_FILE"

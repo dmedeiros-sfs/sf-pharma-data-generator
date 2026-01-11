@@ -1,0 +1,168 @@
+{
+  "users": [
+    {
+      "username": "dthompson",
+      "full_name": "Dr. Diana Thompson",
+      "role": "Clinical Research Director",
+      "department": "Clinical Operations",
+      "zone_admin": ["clinical_trials"],
+      "zone_member": [],
+      "comment": "Zone1 admin"
+    },
+    {
+      "username": "mwatson",
+      "full_name": "Dr. Michael Watson",
+      "role": "Drug Discovery Lead",
+      "department": "R&D",
+      "zone_admin": ["drug_discovery", "regulatory"],
+      "zone_member": [],
+      "comment": "Zone2 and Zone3 admin"
+    },
+    {
+      "username": "sleung",
+      "full_name": "Dr. Sarah Leung",
+      "role": "Pharmacovigilance Manager",
+      "department": "Drug Safety",
+      "zone_admin": [],
+      "zone_member": ["clinical_trials"],
+      "comment": "Zone1 member only"
+    },
+    {
+      "username": "jbaker",
+      "full_name": "Dr. James Baker",
+      "role": "Manufacturing QA Lead",
+      "department": "Quality Assurance",
+      "zone_admin": [],
+      "zone_member": ["drug_discovery"],
+      "comment": "Zone2 member only"
+    },
+    {
+      "username": "nromero",
+      "full_name": "Dr. Nina Romero",
+      "role": "Regulatory Affairs Director",
+      "department": "Regulatory",
+      "zone_admin": [],
+      "zone_member": ["regulatory"],
+      "comment": "Zone3 member only"
+    },
+    {
+      "username": "kpatel",
+      "full_name": "Dr. Kiran Patel",
+      "role": "Senior Biostatistician",
+      "department": "Biostatistics",
+      "zone_admin": [],
+      "zone_member": ["clinical_trials", "drug_discovery"],
+      "comment": "Zone1 and Zone2 member"
+    },
+    {
+      "username": "akim",
+      "full_name": "Dr. Amy Kim",
+      "role": "Medical Writer",
+      "department": "Medical Communications",
+      "zone_admin": [],
+      "zone_member": ["drug_discovery", "regulatory"],
+      "comment": "Zone2 and Zone3 member"
+    },
+    {
+      "username": "rmorgan",
+      "full_name": "Dr. Robert Morgan",
+      "role": "Research Associate",
+      "department": "Early Research",
+      "zone_admin": [],
+      "zone_member": [],
+      "comment": "No zone access - personal files only"
+    }
+  ],
+  
+  "zones": [
+    {
+      "name": "clinical_trials",
+      "description": "Clinical trial data and patient studies",
+      "path": "/mnt/efs/clinical_trials",
+      "volume": "pharma_vol",
+      "capabilities": ["TagApplier", "RecoverExecutor"]
+    },
+    {
+      "name": "drug_discovery",
+      "description": "Drug discovery research and compound libraries",
+      "path": "/mnt/efs/drug_discovery",
+      "volume": "pharma_vol",
+      "capabilities": ["TagApplier", "RecoverExecutor"]
+    },
+    {
+      "name": "regulatory",
+      "description": "Regulatory submissions and compliance documents",
+      "path": "/mnt/efs/regulatory",
+      "volume": "pharma_vol",
+      "capabilities": ["TagApplier", "RecoverExecutor"]
+    }
+  ],
+  
+  "tagsets": [
+    {
+      "name": "document_status",
+      "description": "Document lifecycle status tracking",
+      "tags": ["draft", "in_review", "approved", "archived", "superseded"],
+      "zones": ["clinical_trials", "drug_discovery", "regulatory"]
+    },
+    {
+      "name": "confidentiality",
+      "description": "Data classification levels",
+      "tags": ["public", "internal", "confidential", "restricted", "top_secret"],
+      "zones": ["clinical_trials", "drug_discovery", "regulatory"]
+    },
+    {
+      "name": "therapeutic_area",
+      "description": "Medical therapeutic areas",
+      "tags": ["oncology", "cardiology", "neurology", "immunology", "infectious_disease", "rare_disease"],
+      "zones": ["clinical_trials", "drug_discovery"]
+    }
+  ],
+  
+  "file_templates": {
+    "clinical": [
+      "protocol_{id}_v{num}.pdf",
+      "patient_data_{date}_{num}.csv",
+      "adverse_event_report_{id}.docx",
+      "site_monitoring_{num}.xlsx",
+      "informed_consent_{id}.pdf",
+      "crf_data_{date}.sas7bdat",
+      "randomization_list_{id}.csv",
+      "lab_results_{date}_{num}.csv"
+    ],
+    "discovery": [
+      "compound_{id}_assay.sdf",
+      "hts_screen_{date}_{num}.csv",
+      "molecule_library_{id}.mol2",
+      "binding_affinity_{num}.xlsx",
+      "admet_results_{id}.csv",
+      "protein_structure_{id}.pdb",
+      "docking_results_{date}.log",
+      "synthesis_route_{id}.cdxml"
+    ],
+    "regulatory": [
+      "nda_module_{num}_{id}.pdf",
+      "ctd_section_{num}.docx",
+      "fda_correspondence_{date}.pdf",
+      "ema_submission_{id}.xml",
+      "labeling_{id}_v{num}.docx",
+      "approval_letter_{date}.pdf",
+      "deficiency_response_{id}.pdf",
+      "annual_report_{date}.pdf"
+    ],
+    "research": [
+      "experiment_{id}_{num}.xlsx",
+      "analysis_results_{date}.csv",
+      "research_notes_{id}.docx",
+      "literature_review_{num}.pdf",
+      "data_summary_{date}_{id}.pptx"
+    ]
+  },
+  
+  "directories": {
+    "clinical": ["phase1_studies", "phase2_studies", "phase3_studies", "safety_data", "biomarkers"],
+    "discovery": ["compound_library", "screening_data", "lead_optimization", "formulations", "pk_studies"],
+    "regulatory": ["ind_applications", "nda_submissions", "ema_dossiers", "post_market", "correspondence"],
+    "research": ["experiments", "analysis", "publications", "presentations"]
+  }
+}
