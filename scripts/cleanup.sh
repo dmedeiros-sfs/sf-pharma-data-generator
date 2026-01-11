@@ -90,15 +90,8 @@ if command -v sf &> /dev/null; then
     SF_AVAILABLE=true
 fi
 
-# Function to run sf command
-run_sf() {
-    local cmd="$*"
-    echo "  $ sf $cmd" | tee -a "$LOG_FILE"
-    
-    if [ "$SF_AVAILABLE" = true ]; then
-        sf $cmd -y 2>&1 | tee -a "$LOG_FILE" || true
-    fi
-}
+# Volume configuration - must match configure_starfish.sh
+VOLUME_NAME="efs"
 
 # ============================================================================
 # STARFISH CLEANUP
@@ -117,7 +110,9 @@ if [ "$CLEAN_STARFISH" = true ]; then
     # Remove global roles first
     echo "" | tee -a "$LOG_FILE"
     echo "Removing global roles..." | tee -a "$LOG_FILE"
-    run_sf role global delete PharmaTaggers
+    if [ "$SF_AVAILABLE" = true ]; then
+        sf role global delete PharmaTaggers -y 2>&1 | tee -a "$LOG_FILE" || true
+    fi
     
     # Remove tag sets (this also removes tags and zone bindings)
     echo "" | tee -a "$LOG_FILE"
@@ -131,7 +126,9 @@ if [ "$CLEAN_STARFISH" = true ]; then
     
     for tagset in $tagsets; do
         echo "  Removing tag set: $tagset" | tee -a "$LOG_FILE"
-        run_sf tagset delete "$tagset"
+        if [ "$SF_AVAILABLE" = true ]; then
+            sf tagset delete "$tagset" -y 2>&1 | tee -a "$LOG_FILE" || true
+        fi
     done
     
     # Remove zones (this removes paths, members, roles)
@@ -146,8 +143,17 @@ if [ "$CLEAN_STARFISH" = true ]; then
     
     for zone in $zones; do
         echo "  Removing zone: $zone" | tee -a "$LOG_FILE"
-        run_sf zone delete "$zone"
+        if [ "$SF_AVAILABLE" = true ]; then
+            sf zone delete "$zone" -y 2>&1 | tee -a "$LOG_FILE" || true
+        fi
     done
+    
+    # Remove volume (optional - uncomment if you want to remove the volume too)
+    # echo "" | tee -a "$LOG_FILE"
+    # echo "Removing volume..." | tee -a "$LOG_FILE"
+    # if [ "$SF_AVAILABLE" = true ]; then
+    #     sf volume delete "$VOLUME_NAME" -y 2>&1 | tee -a "$LOG_FILE" || true
+    # fi
     
     echo "" | tee -a "$LOG_FILE"
     echo "✓ Starfish configuration cleanup completed" | tee -a "$LOG_FILE"
