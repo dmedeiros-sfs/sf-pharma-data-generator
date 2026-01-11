@@ -91,7 +91,7 @@ if command -v sf &> /dev/null; then
 fi
 
 # Volume configuration - must match configure_starfish.sh
-VOLUME_NAME="efs"
+SHARED_VOLUME_NAME="efs"
 
 # ============================================================================
 # STARFISH CLEANUP
@@ -148,12 +148,29 @@ if [ "$CLEAN_STARFISH" = true ]; then
         fi
     done
     
-    # Remove volume (optional - uncomment if you want to remove the volume too)
-    # echo "" | tee -a "$LOG_FILE"
-    # echo "Removing volume..." | tee -a "$LOG_FILE"
-    # if [ "$SF_AVAILABLE" = true ]; then
-    #     sf volume delete "$VOLUME_NAME" -y 2>&1 | tee -a "$LOG_FILE" || true
-    # fi
+    # Remove volumes
+    echo "" | tee -a "$LOG_FILE"
+    echo "Removing volumes..." | tee -a "$LOG_FILE"
+    
+    # Remove per-user volumes
+    if command -v jq &> /dev/null && [ -f "$CONFIG_FILE" ]; then
+        users=$(jq -r '.users[] | .username' "$CONFIG_FILE" 2>/dev/null || echo "dthompson mwatson sleung jbaker nromero kpatel akim rmorgan")
+    else
+        users="dthompson mwatson sleung jbaker nromero kpatel akim rmorgan"
+    fi
+    
+    for username in $users; do
+        echo "  Removing volume: $username" | tee -a "$LOG_FILE"
+        if [ "$SF_AVAILABLE" = true ]; then
+            sf volume delete "$username" -y 2>&1 | tee -a "$LOG_FILE" || true
+        fi
+    done
+    
+    # Remove shared volume
+    echo "  Removing volume: $SHARED_VOLUME_NAME" | tee -a "$LOG_FILE"
+    if [ "$SF_AVAILABLE" = true ]; then
+        sf volume delete "$SHARED_VOLUME_NAME" -y 2>&1 | tee -a "$LOG_FILE" || true
+    fi
     
     echo "" | tee -a "$LOG_FILE"
     echo "✓ Starfish configuration cleanup completed" | tee -a "$LOG_FILE"

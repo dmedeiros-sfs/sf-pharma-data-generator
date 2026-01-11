@@ -3,12 +3,13 @@
 # configure_starfish.sh - Configure Starfish zones, tag sets, and permissions
 #
 # This script:
-# 1. Creates volume if needed
-# 2. Creates 3 zones with paths
-# 3. Creates 3 tag sets with tags
-# 4. Assigns zone admins and members
-# 5. Binds tag sets to zones
-# 6. Sets up capabilities and roles
+# 1. Creates a volume per user (for home directories)
+# 2. Creates a shared volume for zone data
+# 3. Creates 3 zones with paths
+# 4. Creates 3 tag sets with tags
+# 5. Assigns zone admins and members
+# 6. Binds tag sets to zones
+# 7. Sets up capabilities and roles
 #
 
 set -e
@@ -20,8 +21,8 @@ LOG_FILE="$SCRIPT_DIR/../output/starfish_config.log"
 #############################################################################
 # CONFIGURATION - Edit these values for your environment
 #############################################################################
-VOLUME_NAME="efs"
-VOLUME_MOUNT="/mnt/efs"
+SHARED_VOLUME_NAME="efs"
+SHARED_VOLUME_MOUNT="/mnt/efs"
 #############################################################################
 
 mkdir -p "$SCRIPT_DIR/../output"
@@ -38,22 +39,37 @@ if ! command -v sf &> /dev/null; then
 fi
 
 echo "" | tee -a "$LOG_FILE"
-echo "Configuration:" | tee -a "$LOG_FILE"
-echo "  Volume name: $VOLUME_NAME" | tee -a "$LOG_FILE"
-echo "  Volume mount: $VOLUME_MOUNT" | tee -a "$LOG_FILE"
+echo "============================================================================" | tee -a "$LOG_FILE"
+echo "STEP 0: Creating Volumes" | tee -a "$LOG_FILE"
+echo "============================================================================" | tee -a "$LOG_FILE"
 
+# Create per-user volumes
 echo "" | tee -a "$LOG_FILE"
-echo "============================================================================" | tee -a "$LOG_FILE"
-echo "STEP 0: Ensuring Volume Exists" | tee -a "$LOG_FILE"
-echo "============================================================================" | tee -a "$LOG_FILE"
+echo "Creating per-user volumes..." | tee -a "$LOG_FILE"
 
-# Check if volume exists
-if sf volume show "$VOLUME_NAME" &>/dev/null; then
-    echo "Volume '$VOLUME_NAME' already exists" | tee -a "$LOG_FILE"
+users=$(jq -r '.users[] | .username' "$CONFIG_FILE")
+
+for username in $users; do
+    vol_name="${username}"
+    vol_mount="/home/${username}"
+    
+    if sf volume show "$vol_name" &>/dev/null; then
+        echo "  Volume '$vol_name' already exists" | tee -a "$LOG_FILE"
+    else
+        echo "  Creating volume '$vol_name' at '$vol_mount'" | tee -a "$LOG_FILE"
+        sf volume add "$vol_name" "$vol_mount" 2>&1 | tee -a "$LOG_FILE" || true
+    fi
+done
+
+# Create shared volume for zones
+echo "" | tee -a "$LOG_FILE"
+echo "Creating shared volume for zones..." | tee -a "$LOG_FILE"
+
+if sf volume show "$SHARED_VOLUME_NAME" &>/dev/null; then
+    echo "  Volume '$SHARED_VOLUME_NAME' already exists" | tee -a "$LOG_FILE"
 else
-    echo "Creating volume '$VOLUME_NAME' at '$VOLUME_MOUNT'..." | tee -a "$LOG_FILE"
-    sf volume add "$VOLUME_NAME" "$VOLUME_MOUNT" 2>&1 | tee -a "$LOG_FILE"
-    echo "Volume created. Note: Initial scan will run automatically." | tee -a "$LOG_FILE"
+    echo "  Creating volume '$SHARED_VOLUME_NAME' at '$SHARED_VOLUME_MOUNT'" | tee -a "$LOG_FILE"
+    sf volume add "$SHARED_VOLUME_NAME" "$SHARED_VOLUME_MOUNT" 2>&1 | tee -a "$LOG_FILE" || true
 fi
 
 echo "" | tee -a "$LOG_FILE"
@@ -69,14 +85,12 @@ for tagset in $tagsets; do
     echo "" | tee -a "$LOG_FILE"
     echo "Creating tag set: $tagset" | tee -a "$LOG_FILE"
     
-    # Check if tagset already exists
     if sf tagset show "$tagset" &>/dev/null; then
         echo "  Tag set '$tagset' already exists, skipping creation" | tee -a "$LOG_FILE"
     else
         sf tagset add "$tagset" --description "$description" --pinnable --inheritable 2>&1 | tee -a "$LOG_FILE" || true
     fi
     
-    # Add tags to the tag set
     tags=$(jq -r ".tagsets[] | select(.name==\"$tagset\") | .tags[]" "$CONFIG_FILE")
     
     for tag in $tags; do
@@ -98,16 +112,15 @@ for zone in $zones; do
     echo "" | tee -a "$LOG_FILE"
     echo "Creating zone: $zone" | tee -a "$LOG_FILE"
     
-    # Check if zone already exists
     if sf zone show "$zone" &>/dev/null; then
         echo "  Zone '$zone' already exists, skipping creation" | tee -a "$LOG_FILE"
     else
         sf zone add "$zone" --description "$description" 2>&1 | tee -a "$LOG_FILE" || true
     fi
     
-    # Add path to zone
-    echo "  Adding path: $VOLUME_NAME:/$zone" | tee -a "$LOG_FILE"
-    sf zone path add "$zone" "$VOLUME_NAME:/$zone" 2>&1 | tee -a "$LOG_FILE" || true
+    # Add path to zone (from shared volume)
+    echo "  Adding path: $SHARED_VOLUME_NAME:/$zone" | tee -a "$LOG_FILE"
+    sf zone path add "$zone" "$SHARED_VOLUME_NAME:/$zone" 2>&1 | tee -a "$LOG_FILE" || true
     
     # Add capabilities to zone
     echo "  Adding capabilities: TagApplier, RecoverExecutor" | tee -a "$LOG_FILE"
@@ -119,8 +132,6 @@ echo "" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
 echo "STEP 3: Assigning Zone Admins" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
-
-users=$(jq -r '.users[] | .username' "$CONFIG_FILE")
 
 for user in $users; do
     admin_zones=$(jq -r ".users[] | select(.username==\"$user\") | .zone_admin[]" "$CONFIG_FILE" 2>/dev/null || echo "")
@@ -173,7 +184,6 @@ echo "==========================================================================
 echo "" | tee -a "$LOG_FILE"
 echo "Creating global role 'PharmaTaggers' for all zone users" | tee -a "$LOG_FILE"
 
-# Check if role exists
 if sf role global show PharmaTaggers &>/dev/null; then
     echo "  Global role 'PharmaTaggers' already exists" | tee -a "$LOG_FILE"
 else
@@ -191,7 +201,6 @@ for zone in $zones; do
     echo "" | tee -a "$LOG_FILE"
     echo "Creating recovery role for zone: $zone" | tee -a "$LOG_FILE"
     
-    # Check if role exists
     if sf zone role show "${zone}.LocalRestorers" &>/dev/null; then
         echo "  Role '${zone}.LocalRestorers' already exists" | tee -a "$LOG_FILE"
     else
@@ -209,7 +218,13 @@ echo "==========================================================================
 echo "" | tee -a "$LOG_FILE"
 echo "SUMMARY:" | tee -a "$LOG_FILE"
 echo "--------" | tee -a "$LOG_FILE"
-echo "Volume:            $VOLUME_NAME ($VOLUME_MOUNT)" | tee -a "$LOG_FILE"
+echo "" | tee -a "$LOG_FILE"
+echo "Volumes created:" | tee -a "$LOG_FILE"
+for username in $users; do
+    echo "  - $username (/home/$username)" | tee -a "$LOG_FILE"
+done
+echo "  - $SHARED_VOLUME_NAME ($SHARED_VOLUME_MOUNT) [shared zones]" | tee -a "$LOG_FILE"
+echo "" | tee -a "$LOG_FILE"
 echo "Zones created:     3 (clinical_trials, drug_discovery, regulatory)" | tee -a "$LOG_FILE"
 echo "Tag sets created:  3 (document_status, confidentiality, therapeutic_area)" | tee -a "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"
