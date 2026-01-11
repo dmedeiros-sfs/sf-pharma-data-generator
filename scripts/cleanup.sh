@@ -5,6 +5,7 @@
 # Options:
 #   --data-only      Only remove data (users, files), keep Starfish config
 #   --starfish-only  Only remove Starfish config (zones, tagsets)
+#   --archive-demo   Also remove archive demo config (volumes, targets)
 #   --all            Remove everything (default if no option given)
 #   -y, --yes        Non-interactive mode, skip confirmation
 #
@@ -20,6 +21,7 @@ mkdir -p "$SCRIPT_DIR/../output"
 # Parse arguments
 CLEAN_DATA=false
 CLEAN_STARFISH=false
+CLEAN_ARCHIVE_DEMO=false
 FORCE_YES=false
 
 while [[ $# -gt 0 ]]; do
@@ -32,9 +34,14 @@ while [[ $# -gt 0 ]]; do
             CLEAN_STARFISH=true
             shift
             ;;
+        --archive-demo)
+            CLEAN_ARCHIVE_DEMO=true
+            shift
+            ;;
         --all)
             CLEAN_DATA=true
             CLEAN_STARFISH=true
+            CLEAN_ARCHIVE_DEMO=true
             shift
             ;;
         -y|--yes)
@@ -43,16 +50,17 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--data-only|--starfish-only|--all] [-y|--yes]"
+            echo "Usage: $0 [--data-only|--starfish-only|--archive-demo|--all] [-y|--yes]"
             exit 1
             ;;
     esac
 done
 
 # Default to --all if no option specified
-if [ "$CLEAN_DATA" = false ] && [ "$CLEAN_STARFISH" = false ]; then
+if [ "$CLEAN_DATA" = false ] && [ "$CLEAN_STARFISH" = false ] && [ "$CLEAN_ARCHIVE_DEMO" = false ]; then
     CLEAN_DATA=true
     CLEAN_STARFISH=true
+    CLEAN_ARCHIVE_DEMO=true
 fi
 
 echo "=== Cleanup Script ===" | tee -a "$LOG_FILE"
@@ -222,6 +230,49 @@ if [ "$CLEAN_DATA" = true ]; then
     
     echo "" | tee -a "$LOG_FILE"
     echo "✓ Data cleanup completed" | tee -a "$LOG_FILE"
+fi
+
+# ============================================================================
+# ARCHIVE DEMO CLEANUP
+# ============================================================================
+if [ "$CLEAN_ARCHIVE_DEMO" = true ]; then
+    echo "" | tee -a "$LOG_FILE"
+    echo "============================================================================" | tee -a "$LOG_FILE"
+    echo "CLEANING ARCHIVE DEMO CONFIGURATION" | tee -a "$LOG_FILE"
+    echo "============================================================================" | tee -a "$LOG_FILE"
+    
+    if [ "$SF_AVAILABLE" = true ]; then
+        # Remove archive targets
+        echo "" | tee -a "$LOG_FILE"
+        echo "Removing archive targets..." | tee -a "$LOG_FILE"
+        for target in atg-sim-nfs atg-sim-lustre atg-sim-s3; do
+            echo "  Removing archive target: $target" | tee -a "$LOG_FILE"
+            sf archive-target delete "$target" -y 2>&1 | tee -a "$LOG_FILE" || true
+        done
+        
+        # Remove simulated archive volumes
+        echo "" | tee -a "$LOG_FILE"
+        echo "Removing simulated archive volumes..." | tee -a "$LOG_FILE"
+        for vol in sim-nfs sim-lustre sim-s3; do
+            echo "  Removing volume: $vol" | tee -a "$LOG_FILE"
+            sf volume delete "$vol" -y 2>&1 | tee -a "$LOG_FILE" || true
+        done
+    else
+        echo "WARNING: 'sf' command not found. Skipping Starfish archive cleanup." | tee -a "$LOG_FILE"
+    fi
+    
+    # Remove simulated archive directories
+    echo "" | tee -a "$LOG_FILE"
+    echo "Removing simulated archive directories..." | tee -a "$LOG_FILE"
+    for dir in /mnt/sim-nfs /mnt/sim-lustre /mnt/sim-s3; do
+        if [ -d "$dir" ]; then
+            echo "  Removing $dir" | tee -a "$LOG_FILE"
+            rm -rf "$dir" 2>&1 | tee -a "$LOG_FILE" || true
+        fi
+    done
+    
+    echo "" | tee -a "$LOG_FILE"
+    echo "✓ Archive demo cleanup completed" | tee -a "$LOG_FILE"
 fi
 
 echo "" | tee -a "$LOG_FILE"
