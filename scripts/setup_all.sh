@@ -129,6 +129,15 @@ else
     echo "Skipping Starfish configuration (--skip-starfish)" | tee -a "$LOG_FILE"
 fi
 
+# Step 4: Setup Archive Demo
+if [ "$SKIP_STARFISH" = false ]; then
+    echo "═══════════════════════════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
+    echo "STEP 5: Setting Up Archive Demo (Archive Targets and Jobs)" | tee -a "$LOG_FILE"
+    echo "═══════════════════════════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
+    "$SCRIPT_DIR/setup_archive_demo.sh"
+    echo "" | tee -a "$LOG_FILE"
+fi
+
 # Final Summary
 echo "" | tee -a "$LOG_FILE"
 echo "═══════════════════════════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
@@ -164,20 +173,10 @@ echo "  User homes:    /home/{username}/research/" | tee -a "$LOG_FILE"
 echo "  Shared zones:  /mnt/efs/{clinical_trials,drug_discovery,regulatory}/" | tee -a "$LOG_FILE"
 
 echo "" | tee -a "$LOG_FILE"
-echo "=== Setup Completed: $(date) ===" | tee -a "$LOG_FILE"
+echo "Archive Targets:" | tee -a "$LOG_FILE"
+echo "  atg-sim-nfs     -> sim-nfs:/archives" | tee -a "$LOG_FILE"
+echo "  atg-sim-lustre  -> sim-lustre:/archives" | tee -a "$LOG_FILE"
+echo "  atg-sim-s3      -> sim-s3:/archives" | tee -a "$LOG_FILE"
 
 echo "" | tee -a "$LOG_FILE"
-echo "════════════════════════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
-echo "OPTIONAL: Run Archive Demo" | tee -a "$LOG_FILE"
-echo "════════════════════════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
-echo "" | tee -a "$LOG_FILE"
-echo "To create archive targets and run demo archive/restore jobs, run:" | tee -a "$LOG_FILE"
-echo "" | tee -a "$LOG_FILE"
-echo "  ./scripts/setup_archive_demo.sh" | tee -a "$LOG_FILE"
-echo "" | tee -a "$LOG_FILE"
-echo "This will:" | tee -a "$LOG_FILE"
-echo "  - Create simulated archive volumes (sim-nfs, sim-lustre, sim-s3)" | tee -a "$LOG_FILE"
-echo "  - Create archive targets (atg-sim-nfs, atg-sim-lustre, atg-sim-s3)" | tee -a "$LOG_FILE"
-echo "  - Run archive jobs (copy and migrate)" | tee -a "$LOG_FILE"
-echo "  - Run a restore job" | tee -a "$LOG_FILE"
-echo "" | tee -a "$LOG_FILE"
+echo "=== Setup Completed: $(date) ===" | tee -a "$LOG_FILE"

@@ -9,7 +9,7 @@ This project creates a complete Starfish demo environment with:
 - **8 users** (pharmaceutical research personas)
 - **3 zones** with different data types
 - **3 tag sets** for document management
-- **Sample data** in user homes and shared locations (< 5MB total)
+- **Sample data** in user homes and shared locations (~1.1GB total)
 
 ## Quick Start
 
@@ -102,7 +102,7 @@ Medical research areas: `oncology`, `cardiology`, `neurology`, `immunology`, `in
 
 | Script                     | Purpose                                              |
 |----------------------------|------------------------------------------------------|
-| `setup_all.sh`             | Complete setup (users, data, Starfish config)        |
+| `setup_all.sh`             | Complete setup (users, data, Starfish, archive demo) |
 | `create_users.sh`          | Create Linux users with starfish group membership    |
 | `generate_data.sh`         | Generate user home directory data                    |
 | `generate_shared_data.sh`  | Generate shared zone data in /mnt/efs/               |
@@ -112,15 +112,9 @@ Medical research areas: `oncology`, `cardiology`, `neurology`, `immunology`, `in
 | `cleanup_archive_demo.sh`  | Remove archive demo configuration only               |
 | `stats.sh`                 | Display current status and statistics                |
 
-## Archive Demo (Optional)
+## Archive Demo
 
-After running the main setup, you can create archive targets and run demo jobs:
-
-```bash
-sudo ./scripts/setup_archive_demo.sh
-```
-
-This creates:
+The archive demo is included in `setup_all.sh` and creates:
 
 **Simulated Archive Volumes:**
 | Volume Name | Mount Point       | Purpose                     |
@@ -232,12 +226,8 @@ All operations are logged to `output/`:
    - One volume per user (e.g., `dthompson` at `/home/dthompson`)
    - One shared volume `efs` at `/mnt/efs` for zone data
 
-2. **Small Data Size**: Total data generated is intentionally small (< 5MB) for quick testing.
+2. **Data Size**: Total data generated is ~1.1GB (700MB user homes + 400MB shared zones).
 
 3. **User rmorgan**: This user has no zone access - demonstrating a user who can only see their personal files.
 
 4. **Idempotent**: Scripts can be re-run safely - they check if resources exist before creating.
-
-## License
-
-MIT License - See LICENSE file for details.

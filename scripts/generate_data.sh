@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # generate_data.sh - Generate dummy pharma data files
-# Max 5MB total, various file types and sizes
+# ~700MB total across all users, varied file sizes (5KB - 10MB)
 #
 
 set -e
@@ -40,8 +40,8 @@ generate_filename() {
     echo "$filename"
 }
 
-# Create a small file with random content
-create_small_file() {
+# Create a file with random content
+create_file() {
     local filepath=$1
     local size_kb=$2
     
@@ -51,7 +51,7 @@ create_small_file() {
 }
 
 total_size=0
-MAX_TOTAL_KB=5120  # 5MB max
+MAX_TOTAL_KB=716800  # ~700MB for user homes
 
 echo "Creating user home directories data..." | tee -a "$LOG_FILE"
 
@@ -72,39 +72,54 @@ for username in $users; do
     echo "  Processing user: $username" | tee -a "$LOG_FILE"
     
     user_home="/home/$username"
+    user_size=0
+    MAX_USER_KB=89600  # ~87MB per user (700MB / 8 users)
     
-    # Create 2 directories per user with 2-3 files each (small)
+    # Create all research directories
     mapfile -t research_templates < <(jq -r '.file_templates.research[]' "$CONFIG_FILE")
-    mapfile -t research_dirs < <(jq -r '.directories.research[]' "$CONFIG_FILE" | head -2)
+    mapfile -t research_dirs < <(jq -r '.directories.research[]' "$CONFIG_FILE")
     
     for dir in "${research_dirs[@]}"; do
         [ -z "$dir" ] && continue
+        [ $user_size -ge $MAX_USER_KB ] && break
         
         dir_path="$user_home/research/$dir"
         mkdir -p "$dir_path"
         
-        # 2-3 files per directory
-        num_files=$(random_range 2 3)
+        # 5-10 files per directory
+        num_files=$(random_range 5 10)
         
         for ((i=1; i<=num_files; i++)); do
-            [ $total_size -ge $MAX_TOTAL_KB ] && break
+            [ $user_size -ge $MAX_USER_KB ] && break
             
             template="${research_templates[$((RANDOM % ${#research_templates[@]}))]}"
             filename=$(generate_filename "$template" "$RANDOM" "$i")
             filepath="$dir_path/$filename"
             
-            # Small files: 10KB - 100KB
-            size_kb=$(random_range 10 100)
-            create_small_file "$filepath" $size_kb
+            # Varied file sizes:
+            # 60% small (5KB - 100KB)
+            # 30% medium (100KB - 2MB)
+            # 10% large (2MB - 10MB)
+            roll=$((RANDOM % 100))
+            if [ $roll -lt 60 ]; then
+                size_kb=$(random_range 5 100)
+            elif [ $roll -lt 90 ]; then
+                size_kb=$(random_range 100 2048)
+            else
+                size_kb=$(random_range 2048 10240)
+            fi
+            
+            create_file "$filepath" $size_kb
+            user_size=$((user_size + size_kb))
             total_size=$((total_size + size_kb))
         done
         
         chown -R "$username:$username" "$dir_path" 2>/dev/null || true
     done
     
-    echo "    Created research directories for $username" | tee -a "$LOG_FILE"
+    echo "    Created ~$((user_size / 1024))MB for $username" | tee -a "$LOG_FILE"
 done
 
 echo "" | tee -a "$LOG_FILE"
-echo "Total data created: ~${total_size}KB" | tee -a "$LOG_FILE"
+echo "Total user home data: ~$((total_size / 1024))MB" | tee -a "$LOG_FILE"
 echo "=== User Home Data Generation Completed: $(date) ===" | tee -a "$LOG_FILE"

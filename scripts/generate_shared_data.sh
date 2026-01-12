@@ -38,7 +38,7 @@ generate_filename() {
     echo "$filename"
 }
 
-create_small_file() {
+create_file() {
     local filepath=$1
     local size_kb=$2
     
@@ -51,7 +51,8 @@ echo "Creating zone directories..." | tee -a "$LOG_FILE"
 mkdir -p /mnt/efs/{clinical_trials,drug_discovery,regulatory}
 
 total_size=0
-MAX_TOTAL_KB=2048  # 2MB for shared data
+MAX_TOTAL_KB=409600  # ~400MB for shared data
+MAX_ZONE_KB=136533   # ~133MB per zone (400MB / 3 zones)
 
 # ============================================================================
 # CLINICAL TRIALS ZONE (Zone 1)
@@ -65,26 +66,37 @@ mapfile -t clinical_dirs < <(jq -r '.directories.clinical[]' "$CONFIG_FILE")
 # Get zone1 members for ownership
 zone1_users=$(jq -r '.users[] | select(.zone_admin[] == "clinical_trials" or .zone_member[] == "clinical_trials") | .username' "$CONFIG_FILE")
 zone1_array=($zone1_users)
+zone1_size=0
 
 for dir in "${clinical_dirs[@]}"; do
     [ -z "$dir" ] && continue
-    [ $total_size -ge $MAX_TOTAL_KB ] && break
+    [ $zone1_size -ge $MAX_ZONE_KB ] && break
     
     dir_path="/mnt/efs/clinical_trials/$dir"
     mkdir -p "$dir_path"
     
-    num_files=$(random_range 2 4)
+    num_files=$(random_range 8 15)
     echo "  Creating $dir ($num_files files)..." | tee -a "$LOG_FILE"
     
     for ((i=1; i<=num_files; i++)); do
-        [ $total_size -ge $MAX_TOTAL_KB ] && break
+        [ $zone1_size -ge $MAX_ZONE_KB ] && break
         
         template="${clinical_templates[$((RANDOM % ${#clinical_templates[@]}))]}"
         filename=$(generate_filename "$template" "$RANDOM" "$i")
         filepath="$dir_path/$filename"
         
-        size_kb=$(random_range 20 150)
-        create_small_file "$filepath" $size_kb
+        # Varied file sizes
+        roll=$((RANDOM % 100))
+        if [ $roll -lt 60 ]; then
+            size_kb=$(random_range 5 100)
+        elif [ $roll -lt 90 ]; then
+            size_kb=$(random_range 100 2048)
+        else
+            size_kb=$(random_range 2048 10240)
+        fi
+        
+        create_file "$filepath" $size_kb
+        zone1_size=$((zone1_size + size_kb))
         total_size=$((total_size + size_kb))
         
         # Assign to random zone member
@@ -96,7 +108,7 @@ for dir in "${clinical_dirs[@]}"; do
 done
 
 chmod -R 755 /mnt/efs/clinical_trials
-echo "  ✓ Clinical trials zone data created" | tee -a "$LOG_FILE"
+echo "  ✓ Clinical trials zone: ~$((zone1_size / 1024))MB" | tee -a "$LOG_FILE"
 
 # ============================================================================
 # DRUG DISCOVERY ZONE (Zone 2)
@@ -109,26 +121,37 @@ mapfile -t discovery_dirs < <(jq -r '.directories.discovery[]' "$CONFIG_FILE")
 
 zone2_users=$(jq -r '.users[] | select(.zone_admin[] == "drug_discovery" or .zone_member[] == "drug_discovery") | .username' "$CONFIG_FILE")
 zone2_array=($zone2_users)
+zone2_size=0
 
 for dir in "${discovery_dirs[@]}"; do
     [ -z "$dir" ] && continue
-    [ $total_size -ge $MAX_TOTAL_KB ] && break
+    [ $zone2_size -ge $MAX_ZONE_KB ] && break
     
     dir_path="/mnt/efs/drug_discovery/$dir"
     mkdir -p "$dir_path"
     
-    num_files=$(random_range 2 4)
+    num_files=$(random_range 8 15)
     echo "  Creating $dir ($num_files files)..." | tee -a "$LOG_FILE"
     
     for ((i=1; i<=num_files; i++)); do
-        [ $total_size -ge $MAX_TOTAL_KB ] && break
+        [ $zone2_size -ge $MAX_ZONE_KB ] && break
         
         template="${discovery_templates[$((RANDOM % ${#discovery_templates[@]}))]}"
         filename=$(generate_filename "$template" "$RANDOM" "$i")
         filepath="$dir_path/$filename"
         
-        size_kb=$(random_range 20 150)
-        create_small_file "$filepath" $size_kb
+        # Varied file sizes
+        roll=$((RANDOM % 100))
+        if [ $roll -lt 60 ]; then
+            size_kb=$(random_range 5 100)
+        elif [ $roll -lt 90 ]; then
+            size_kb=$(random_range 100 2048)
+        else
+            size_kb=$(random_range 2048 10240)
+        fi
+        
+        create_file "$filepath" $size_kb
+        zone2_size=$((zone2_size + size_kb))
         total_size=$((total_size + size_kb))
         
         if [ ${#zone2_array[@]} -gt 0 ]; then
@@ -139,7 +162,7 @@ for dir in "${discovery_dirs[@]}"; do
 done
 
 chmod -R 755 /mnt/efs/drug_discovery
-echo "  ✓ Drug discovery zone data created" | tee -a "$LOG_FILE"
+echo "  ✓ Drug discovery zone: ~$((zone2_size / 1024))MB" | tee -a "$LOG_FILE"
 
 # ============================================================================
 # REGULATORY ZONE (Zone 3)
@@ -152,26 +175,37 @@ mapfile -t regulatory_dirs < <(jq -r '.directories.regulatory[]' "$CONFIG_FILE")
 
 zone3_users=$(jq -r '.users[] | select(.zone_admin[] == "regulatory" or .zone_member[] == "regulatory") | .username' "$CONFIG_FILE")
 zone3_array=($zone3_users)
+zone3_size=0
 
 for dir in "${regulatory_dirs[@]}"; do
     [ -z "$dir" ] && continue
-    [ $total_size -ge $MAX_TOTAL_KB ] && break
+    [ $zone3_size -ge $MAX_ZONE_KB ] && break
     
     dir_path="/mnt/efs/regulatory/$dir"
     mkdir -p "$dir_path"
     
-    num_files=$(random_range 2 4)
+    num_files=$(random_range 8 15)
     echo "  Creating $dir ($num_files files)..." | tee -a "$LOG_FILE"
     
     for ((i=1; i<=num_files; i++)); do
-        [ $total_size -ge $MAX_TOTAL_KB ] && break
+        [ $zone3_size -ge $MAX_ZONE_KB ] && break
         
         template="${regulatory_templates[$((RANDOM % ${#regulatory_templates[@]}))]}"
         filename=$(generate_filename "$template" "$RANDOM" "$i")
         filepath="$dir_path/$filename"
         
-        size_kb=$(random_range 20 150)
-        create_small_file "$filepath" $size_kb
+        # Varied file sizes
+        roll=$((RANDOM % 100))
+        if [ $roll -lt 60 ]; then
+            size_kb=$(random_range 5 100)
+        elif [ $roll -lt 90 ]; then
+            size_kb=$(random_range 100 2048)
+        else
+            size_kb=$(random_range 2048 10240)
+        fi
+        
+        create_file "$filepath" $size_kb
+        zone3_size=$((zone3_size + size_kb))
         total_size=$((total_size + size_kb))
         
         if [ ${#zone3_array[@]} -gt 0 ]; then
@@ -182,7 +216,7 @@ for dir in "${regulatory_dirs[@]}"; do
 done
 
 chmod -R 755 /mnt/efs/regulatory
-echo "  ✓ Regulatory zone data created" | tee -a "$LOG_FILE"
+echo "  ✓ Regulatory zone: ~$((zone3_size / 1024))MB" | tee -a "$LOG_FILE"
 
 # ============================================================================
 # Summary
@@ -193,5 +227,5 @@ echo "clinical_trials: $(du -sh /mnt/efs/clinical_trials 2>/dev/null | cut -f1)"
 echo "drug_discovery:  $(du -sh /mnt/efs/drug_discovery 2>/dev/null | cut -f1)" | tee -a "$LOG_FILE"
 echo "regulatory:      $(du -sh /mnt/efs/regulatory 2>/dev/null | cut -f1)" | tee -a "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"
-echo "Total shared data: ~${total_size}KB" | tee -a "$LOG_FILE"
+echo "Total shared data: ~$((total_size / 1024))MB" | tee -a "$LOG_FILE"
 echo "=== Shared Data Generation Completed: $(date) ===" | tee -a "$LOG_FILE"
