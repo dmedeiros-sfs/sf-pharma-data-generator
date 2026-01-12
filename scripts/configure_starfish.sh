@@ -47,8 +47,11 @@ echo "==========================================================================
 wait_for_pending_scans() {
     echo "    Waiting for pending scans to complete..." | tee -a "$LOG_FILE"
     while true; do
-        pending=$(sf scan pending 2>/dev/null | grep -c "RUNNING\|PENDING" || echo "0")
-        if [ "$pending" -eq 0 ]; then
+        pending_output=$(sf scan pending 2>/dev/null || true)
+        pending=$(echo "$pending_output" | grep -cE "RUNNING|PENDING" || echo "0")
+        # Ensure we have a single integer
+        pending=$(echo "$pending" | head -1 | tr -d '[:space:]')
+        if [ -z "$pending" ] || [ "$pending" -eq 0 ] 2>/dev/null; then
             break
         fi
         echo "      $pending scan(s) still running, waiting..." | tee -a "$LOG_FILE"
@@ -57,22 +60,20 @@ wait_for_pending_scans() {
     echo "    No pending scans" | tee -a "$LOG_FILE"
 }
 
-# Helper function: run full scan on a volume
-run_full_scan() {
+# Helper function: run diff scan on a volume
+run_diff_scan() {
     local vol_name="$1"
-    echo "    Running full scan on '$vol_name'..." | tee -a "$LOG_FILE"
+    echo "    Running diff scan on '$vol_name'..." | tee -a "$LOG_FILE"
     sf scan start -t diff "$vol_name:" --wait 2>&1 | tee -a "$LOG_FILE" || true
     echo "    Scan complete for '$vol_name'" | tee -a "$LOG_FILE"
 }
-
-# Collect all volumes to create
-declare -a ALL_VOLUMES=()
 
 # Create per-user volumes
 echo "" | tee -a "$LOG_FILE"
 echo "Creating per-user volumes..." | tee -a "$LOG_FILE"
 
 users=$(jq -r '.users[] | .username' "$CONFIG_FILE")
+declare -a ALL_VOLUMES=()
 
 for username in $users; do
     vol_name="${username}"
@@ -99,18 +100,22 @@ else
 fi
 ALL_VOLUMES+=("$SHARED_VOLUME_NAME")
 
-# Wait for any auto-triggered scans, then run full scans on all volumes
+# Wait for all auto-triggered scans to complete
 echo "" | tee -a "$LOG_FILE"
-echo "Running full scans on all volumes..." | tee -a "$LOG_FILE"
+echo "Waiting for auto-triggered scans to complete..." | tee -a "$LOG_FILE"
+wait_for_pending_scans
+
+# Now run diff scan on each volume sequentially
+echo "" | tee -a "$LOG_FILE"
+echo "Running diff scans on all volumes..." | tee -a "$LOG_FILE"
 
 for vol_name in "${ALL_VOLUMES[@]}"; do
-    echo "  Scanning volume: $vol_name" | tee -a "$LOG_FILE"
-    wait_for_pending_scans
-    run_full_scan "$vol_name"
+    run_diff_scan "$vol_name"
 done
 
 echo "" | tee -a "$LOG_FILE"
 echo "All volume scans complete." | tee -a "$LOG_FILE"
+
 
 echo "" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
