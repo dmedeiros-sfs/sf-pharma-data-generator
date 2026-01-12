@@ -43,6 +43,31 @@ echo "==========================================================================
 echo "STEP 0: Creating Volumes" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
 
+# Helper function: wait for all pending scans to complete
+wait_for_pending_scans() {
+    echo "    Waiting for pending scans to complete..." | tee -a "$LOG_FILE"
+    while true; do
+        pending=$(sf scan pending 2>/dev/null | grep -c "RUNNING\|PENDING" || echo "0")
+        if [ "$pending" -eq 0 ]; then
+            break
+        fi
+        echo "      $pending scan(s) still running, waiting..." | tee -a "$LOG_FILE"
+        sleep 5
+    done
+    echo "    No pending scans" | tee -a "$LOG_FILE"
+}
+
+# Helper function: run full scan on a volume
+run_full_scan() {
+    local vol_name="$1"
+    echo "    Running full scan on '$vol_name'..." | tee -a "$LOG_FILE"
+    sf scan start -t diff "$vol_name:" --wait 2>&1 | tee -a "$LOG_FILE" || true
+    echo "    Scan complete for '$vol_name'" | tee -a "$LOG_FILE"
+}
+
+# Collect all volumes to create
+declare -a ALL_VOLUMES=()
+
 # Create per-user volumes
 echo "" | tee -a "$LOG_FILE"
 echo "Creating per-user volumes..." | tee -a "$LOG_FILE"
@@ -59,6 +84,7 @@ for username in $users; do
         echo "  Creating volume '$vol_name' at '$vol_mount'" | tee -a "$LOG_FILE"
         sf volume add "$vol_name" "$vol_mount" 2>&1 | tee -a "$LOG_FILE" || true
     fi
+    ALL_VOLUMES+=("$vol_name")
 done
 
 # Create shared volume for zones
@@ -71,6 +97,20 @@ else
     echo "  Creating volume '$SHARED_VOLUME_NAME' at '$SHARED_VOLUME_MOUNT'" | tee -a "$LOG_FILE"
     sf volume add "$SHARED_VOLUME_NAME" "$SHARED_VOLUME_MOUNT" 2>&1 | tee -a "$LOG_FILE" || true
 fi
+ALL_VOLUMES+=("$SHARED_VOLUME_NAME")
+
+# Wait for any auto-triggered scans, then run full scans on all volumes
+echo "" | tee -a "$LOG_FILE"
+echo "Running full scans on all volumes..." | tee -a "$LOG_FILE"
+
+for vol_name in "${ALL_VOLUMES[@]}"; do
+    echo "  Scanning volume: $vol_name" | tee -a "$LOG_FILE"
+    wait_for_pending_scans
+    run_full_scan "$vol_name"
+done
+
+echo "" | tee -a "$LOG_FILE"
+echo "All volume scans complete." | tee -a "$LOG_FILE"
 
 echo "" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"

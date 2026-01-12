@@ -64,6 +64,28 @@ echo "==========================================================================
 echo "STEP 2: Creating Simulated Archive Volumes" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
 
+# Helper function: wait for all pending scans to complete
+wait_for_pending_scans() {
+    echo "  Waiting for pending scans to complete..." | tee -a "$LOG_FILE"
+    while true; do
+        pending=$(sf scan pending 2>/dev/null | grep -c "RUNNING\|PENDING" || echo "0")
+        if [ "$pending" -eq 0 ]; then
+            break
+        fi
+        echo "    $pending scan(s) still running, waiting..." | tee -a "$LOG_FILE"
+        sleep 5
+    done
+    echo "  No pending scans" | tee -a "$LOG_FILE"
+}
+
+# Helper function: run full scan on a volume
+run_full_scan() {
+    local vol_name="$1"
+    echo "  Running full scan on '$vol_name'..." | tee -a "$LOG_FILE"
+    sf scan start -t diff "$vol_name:" --wait 2>&1 | tee -a "$LOG_FILE" || true
+    echo "  Scan complete for '$vol_name'" | tee -a "$LOG_FILE"
+}
+
 # Create volumes for archive targets
 declare -A SIM_VOLUMES=(
     ["sim-nfs"]="$SIM_NFS_MOUNT"
@@ -82,10 +104,17 @@ for vol_name in "${!SIM_VOLUMES[@]}"; do
     fi
 done
 
-# Wait a moment for volumes to be ready
+# Wait for any auto-triggered scans, then run full scans on all archive volumes
 echo "" | tee -a "$LOG_FILE"
-echo "Waiting for volumes to initialize..." | tee -a "$LOG_FILE"
-sleep 5
+echo "Running full scans on archive volumes..." | tee -a "$LOG_FILE"
+
+for vol_name in "${!SIM_VOLUMES[@]}"; do
+    wait_for_pending_scans
+    run_full_scan "$vol_name"
+done
+
+echo "" | tee -a "$LOG_FILE"
+echo "All archive volume scans complete." | tee -a "$LOG_FILE"
 
 echo "" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
@@ -124,20 +153,21 @@ sf archive-target list 2>&1 | tee -a "$LOG_FILE"
 
 echo "" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
-echo "STEP 4: Running Initial Scans on Source Volumes" | tee -a "$LOG_FILE"
+echo "STEP 4: Ensuring Source Volumes Are Scanned" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
 
-# Make sure source volumes have been scanned
-echo "Checking if source volumes have been scanned..." | tee -a "$LOG_FILE"
+# Make sure source volumes have been scanned (in case configure_starfish.sh wasn't run)
+echo "Verifying source volumes are scanned..." | tee -a "$LOG_FILE"
 
 for src_vol in "$ARCHIVE_TO_NFS_SOURCE" "$ARCHIVE_TO_LUSTRE_SOURCE" "$ARCHIVE_TO_S3_SOURCE"; do
     echo "  Checking volume: $src_vol" | tee -a "$LOG_FILE"
-    # Try to query the volume - if it fails, run a scan
+    # Try to query the volume - if it fails or returns no data, run a full scan
     if ! sf query "$src_vol:/" --limit 1 &>/dev/null; then
-        echo "    Running scan on $src_vol..." | tee -a "$LOG_FILE"
-        sf scan start -t diff "$src_vol:" --wait 2>&1 | tee -a "$LOG_FILE" || true
+        echo "    Volume needs scanning, waiting for pending scans..." | tee -a "$LOG_FILE"
+        wait_for_pending_scans
+        run_full_scan "$src_vol"
     else
-        echo "    Volume $src_vol has data, skipping scan" | tee -a "$LOG_FILE"
+        echo "    Volume $src_vol already has data indexed" | tee -a "$LOG_FILE"
     fi
 done
 
