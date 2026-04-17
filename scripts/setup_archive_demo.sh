@@ -35,6 +35,7 @@ ARCHIVE_TO_LUSTRE_SOURCE="mwatson"     # Copy to Lustre
 ARCHIVE_TO_S3_SOURCE="sleung"          # Migrate (move) to S3
 
 AGENT_ADDRESS=""
+IS_SERVER=false
 #############################################################################
 
 # Parse arguments
@@ -44,9 +45,13 @@ while [[ $# -gt 0 ]]; do
             AGENT_ADDRESS="$2"
             shift 2
             ;;
+        --server)
+            IS_SERVER=true
+            shift
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--agent-address URL]"
+            echo "Usage: $0 [--agent-address URL] [--server]"
             exit 1
             ;;
     esac
@@ -55,8 +60,30 @@ done
 mkdir -p "$SCRIPT_DIR/../output"
 echo "=== Archive Demo Setup Started: $(date) ===" | tee -a "$LOG_FILE"
 
+# If no agent address provided and not explicitly server, ask user
+if [ -z "$AGENT_ADDRESS" ] && [ "$IS_SERVER" = false ]; then
+    suggested_url="https://$(hostname -f):30002"
+    echo ""
+    echo "Running on agent or server?"
+    echo "  - Press Enter to use agent: $suggested_url"
+    echo "  - Type a different agent URL"
+    echo "  - Type 'server' or 's' if running on the Starfish server"
+    echo ""
+    read -p "[$suggested_url]: " user_input
+    
+    if [[ "$user_input" =~ ^[Ss](erver)?$ ]]; then
+        AGENT_ADDRESS=""
+    elif [ -z "$user_input" ]; then
+        AGENT_ADDRESS="$suggested_url"
+    else
+        AGENT_ADDRESS="$user_input"
+    fi
+fi
+
 if [ -n "$AGENT_ADDRESS" ]; then
     echo "Agent address: $AGENT_ADDRESS" | tee -a "$LOG_FILE"
+else
+    echo "Running on server (no agent address)" | tee -a "$LOG_FILE"
 fi
 
 if ! command -v sf &> /dev/null; then

@@ -29,6 +29,7 @@ SKIP_DATA=false
 SKIP_STARFISH=false
 CLEAN_FIRST=false
 AGENT_ADDRESS=""
+IS_SERVER=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -52,6 +53,10 @@ while [[ $# -gt 0 ]]; do
             AGENT_ADDRESS="$2"
             shift 2
             ;;
+        --server)
+            IS_SERVER=true
+            shift
+            ;;
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -61,6 +66,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --skip-starfish       Skip Starfish configuration"
             echo "  --clean-first         Run cleanup before setup"
             echo "  --agent-address URL   Agent URL for volume creation (when running on agent)"
+            echo "  --server              Running on Starfish server (skip agent prompt)"
             echo "  -h, --help            Show this help"
             exit 0
             ;;
@@ -88,8 +94,35 @@ BANNER
 
 echo "" | tee -a "$LOG_FILE"
 echo "=== Setup Started: $(date) ===" | tee -a "$LOG_FILE"
+
+# If not skipping Starfish and no agent address provided, ask user
+if [ "$SKIP_STARFISH" = false ] && [ -z "$AGENT_ADDRESS" ] && [ "$IS_SERVER" = false ]; then
+    echo ""
+    suggested_url="https://$(hostname -f):30002"
+    echo "Running on agent or server?"
+    echo "  - Press Enter to use agent: $suggested_url"
+    echo "  - Type a different agent URL"
+    echo "  - Type 'server' or 's' if running on the Starfish server"
+    echo ""
+    read -p "[$suggested_url]: " user_input
+    
+    if [[ "$user_input" =~ ^[Ss](erver)?$ ]]; then
+        # Running on server
+        AGENT_ADDRESS=""
+        IS_SERVER=true
+    elif [ -z "$user_input" ]; then
+        # Empty input = use suggested URL (default)
+        AGENT_ADDRESS="$suggested_url"
+    else
+        # User provided a URL
+        AGENT_ADDRESS="$user_input"
+    fi
+fi
+
 if [ -n "$AGENT_ADDRESS" ]; then
     echo "Agent address: $AGENT_ADDRESS" | tee -a "$LOG_FILE"
+else
+    echo "Running on server (no agent address)" | tee -a "$LOG_FILE"
 fi
 echo "" | tee -a "$LOG_FILE"
 
@@ -136,7 +169,7 @@ if [ "$SKIP_STARFISH" = false ]; then
     if [ -n "$AGENT_ADDRESS" ]; then
         "$SCRIPT_DIR/configure_starfish.sh" --agent-address "$AGENT_ADDRESS"
     else
-        "$SCRIPT_DIR/configure_starfish.sh"
+        "$SCRIPT_DIR/configure_starfish.sh" --server
     fi
     echo "" | tee -a "$LOG_FILE"
 else
@@ -151,7 +184,7 @@ if [ "$SKIP_STARFISH" = false ]; then
     if [ -n "$AGENT_ADDRESS" ]; then
         "$SCRIPT_DIR/setup_archive_demo.sh" --agent-address "$AGENT_ADDRESS"
     else
-        "$SCRIPT_DIR/setup_archive_demo.sh"
+        "$SCRIPT_DIR/setup_archive_demo.sh" --server
     fi
     echo "" | tee -a "$LOG_FILE"
 fi
