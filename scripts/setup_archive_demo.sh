@@ -146,9 +146,9 @@ add_volume() {
     local vol_name="$1"
     local vol_mount="$2"
     if [ -n "$AGENT_ADDRESS" ]; then
-        sf volume add "$vol_name" "$vol_mount" --agent-address "$AGENT_ADDRESS" 2>&1 | tee -a "$LOG_FILE" || true
+        sf volume add "$vol_name" "$vol_mount" --agent-address "$AGENT_ADDRESS" --no-cron 2>&1 | tee -a "$LOG_FILE" || true
     else
-        sf volume add "$vol_name" "$vol_mount" 2>&1 | tee -a "$LOG_FILE" || true
+        sf volume add "$vol_name" "$vol_mount" --no-cron 2>&1 | tee -a "$LOG_FILE" || true
     fi
 }
 
