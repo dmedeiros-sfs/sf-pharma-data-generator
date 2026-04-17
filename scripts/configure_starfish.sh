@@ -11,6 +11,10 @@
 # 6. Binds tag sets to zones
 # 7. Sets up capabilities and roles
 #
+# Options:
+#   --agent-address URL   Use this agent address for volume creation
+#                         (required when running on an agent, not the server)
+#
 
 set -e
 
@@ -23,10 +27,30 @@ LOG_FILE="$SCRIPT_DIR/../output/starfish_config.log"
 #############################################################################
 SHARED_VOLUME_NAME="efs"
 SHARED_VOLUME_MOUNT="/mnt/efs"
+AGENT_ADDRESS=""
 #############################################################################
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --agent-address)
+            AGENT_ADDRESS="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: $0 [--agent-address URL]"
+            exit 1
+            ;;
+    esac
+done
 
 mkdir -p "$SCRIPT_DIR/../output"
 echo "=== Starfish Configuration Started: $(date) ===" | tee -a "$LOG_FILE"
+
+if [ -n "$AGENT_ADDRESS" ]; then
+    echo "Agent address: $AGENT_ADDRESS" | tee -a "$LOG_FILE"
+fi
 
 if ! command -v jq &> /dev/null; then
     echo "Error: jq is required. Install with: sudo apt-get install jq"
@@ -68,6 +92,17 @@ run_diff_scan() {
     echo "    Scan complete for '$vol_name'" | tee -a "$LOG_FILE"
 }
 
+# Helper function: add a volume with optional agent address
+add_volume() {
+    local vol_name="$1"
+    local vol_mount="$2"
+    if [ -n "$AGENT_ADDRESS" ]; then
+        sf volume add "$vol_name" "$vol_mount" --agent-address "$AGENT_ADDRESS" 2>&1 | tee -a "$LOG_FILE" || true
+    else
+        sf volume add "$vol_name" "$vol_mount" 2>&1 | tee -a "$LOG_FILE" || true
+    fi
+}
+
 # Create per-user volumes
 echo "" | tee -a "$LOG_FILE"
 echo "Creating per-user volumes..." | tee -a "$LOG_FILE"
@@ -83,7 +118,7 @@ for username in $users; do
         echo "  Volume '$vol_name' already exists" | tee -a "$LOG_FILE"
     else
         echo "  Creating volume '$vol_name' at '$vol_mount'" | tee -a "$LOG_FILE"
-        sf volume add "$vol_name" "$vol_mount" 2>&1 | tee -a "$LOG_FILE" || true
+        add_volume "$vol_name" "$vol_mount"
     fi
     ALL_VOLUMES+=("$vol_name")
 done
@@ -96,7 +131,7 @@ if sf volume show "$SHARED_VOLUME_NAME" &>/dev/null; then
     echo "  Volume '$SHARED_VOLUME_NAME' already exists" | tee -a "$LOG_FILE"
 else
     echo "  Creating volume '$SHARED_VOLUME_NAME' at '$SHARED_VOLUME_MOUNT'" | tee -a "$LOG_FILE"
-    sf volume add "$SHARED_VOLUME_NAME" "$SHARED_VOLUME_MOUNT" 2>&1 | tee -a "$LOG_FILE" || true
+    add_volume "$SHARED_VOLUME_NAME" "$SHARED_VOLUME_MOUNT"
 fi
 ALL_VOLUMES+=("$SHARED_VOLUME_NAME")
 

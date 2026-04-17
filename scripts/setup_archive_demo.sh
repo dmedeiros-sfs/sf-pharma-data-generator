@@ -10,14 +10,15 @@
 #
 # The purpose is to create job records visible in the Starfish GUI
 #
+# Options:
+#   --agent-address URL   Use this agent address for volume creation
+#                         (required when running on an agent, not the server)
+#
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_FILE="$SCRIPT_DIR/../output/archive_demo.log"
-
-mkdir -p "$SCRIPT_DIR/../output"
-echo "=== Archive Demo Setup Started: $(date) ===" | tee -a "$LOG_FILE"
 
 #############################################################################
 # CONFIGURATION
@@ -32,7 +33,31 @@ SIM_S3_MOUNT="/mnt/sim-s3"
 ARCHIVE_TO_NFS_SOURCE="dthompson"      # Copy to NFS
 ARCHIVE_TO_LUSTRE_SOURCE="mwatson"     # Copy to Lustre
 ARCHIVE_TO_S3_SOURCE="sleung"          # Migrate (move) to S3
+
+AGENT_ADDRESS=""
 #############################################################################
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --agent-address)
+            AGENT_ADDRESS="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: $0 [--agent-address URL]"
+            exit 1
+            ;;
+    esac
+done
+
+mkdir -p "$SCRIPT_DIR/../output"
+echo "=== Archive Demo Setup Started: $(date) ===" | tee -a "$LOG_FILE"
+
+if [ -n "$AGENT_ADDRESS" ]; then
+    echo "Agent address: $AGENT_ADDRESS" | tee -a "$LOG_FILE"
+fi
 
 if ! command -v sf &> /dev/null; then
     echo "Error: 'sf' command not found. Is Starfish installed?"
@@ -89,6 +114,17 @@ run_diff_scan() {
     echo "  Scan complete for '$vol_name'" | tee -a "$LOG_FILE"
 }
 
+# Helper function: add a volume with optional agent address
+add_volume() {
+    local vol_name="$1"
+    local vol_mount="$2"
+    if [ -n "$AGENT_ADDRESS" ]; then
+        sf volume add "$vol_name" "$vol_mount" --agent-address "$AGENT_ADDRESS" 2>&1 | tee -a "$LOG_FILE" || true
+    else
+        sf volume add "$vol_name" "$vol_mount" 2>&1 | tee -a "$LOG_FILE" || true
+    fi
+}
+
 # Create volumes for archive targets
 declare -A SIM_VOLUMES=(
     ["sim-nfs"]="$SIM_NFS_MOUNT"
@@ -103,7 +139,7 @@ for vol_name in "${!SIM_VOLUMES[@]}"; do
         echo "Volume '$vol_name' already exists" | tee -a "$LOG_FILE"
     else
         echo "Creating volume '$vol_name' at '$vol_mount'" | tee -a "$LOG_FILE"
-        sf volume add "$vol_name" "$vol_mount" 2>&1 | tee -a "$LOG_FILE" || true
+        add_volume "$vol_name" "$vol_mount"
     fi
 done
 

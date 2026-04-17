@@ -13,6 +13,7 @@
 #   --skip-data        Skip data generation
 #   --skip-starfish    Skip Starfish configuration
 #   --clean-first      Run cleanup before setup
+#   --agent-address    Agent URL for volume creation (when running on agent)
 #
 
 set -e
@@ -27,6 +28,7 @@ SKIP_USERS=false
 SKIP_DATA=false
 SKIP_STARFISH=false
 CLEAN_FIRST=false
+AGENT_ADDRESS=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -46,15 +48,20 @@ while [[ $# -gt 0 ]]; do
             CLEAN_FIRST=true
             shift
             ;;
+        --agent-address)
+            AGENT_ADDRESS="$2"
+            shift 2
+            ;;
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --skip-users       Skip user creation"
-            echo "  --skip-data        Skip data generation"
-            echo "  --skip-starfish    Skip Starfish configuration"
-            echo "  --clean-first      Run cleanup before setup"
-            echo "  -h, --help         Show this help"
+            echo "  --skip-users          Skip user creation"
+            echo "  --skip-data           Skip data generation"
+            echo "  --skip-starfish       Skip Starfish configuration"
+            echo "  --clean-first         Run cleanup before setup"
+            echo "  --agent-address URL   Agent URL for volume creation (when running on agent)"
+            echo "  -h, --help            Show this help"
             exit 0
             ;;
         *)
@@ -81,6 +88,9 @@ BANNER
 
 echo "" | tee -a "$LOG_FILE"
 echo "=== Setup Started: $(date) ===" | tee -a "$LOG_FILE"
+if [ -n "$AGENT_ADDRESS" ]; then
+    echo "Agent address: $AGENT_ADDRESS" | tee -a "$LOG_FILE"
+fi
 echo "" | tee -a "$LOG_FILE"
 
 # Clean first if requested
@@ -123,7 +133,11 @@ if [ "$SKIP_STARFISH" = false ]; then
     echo "═══════════════════════════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
     echo "STEP 4: Configuring Starfish (Zones, Tag Sets, Permissions)" | tee -a "$LOG_FILE"
     echo "═══════════════════════════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
-    "$SCRIPT_DIR/configure_starfish.sh"
+    if [ -n "$AGENT_ADDRESS" ]; then
+        "$SCRIPT_DIR/configure_starfish.sh" --agent-address "$AGENT_ADDRESS"
+    else
+        "$SCRIPT_DIR/configure_starfish.sh"
+    fi
     echo "" | tee -a "$LOG_FILE"
 else
     echo "Skipping Starfish configuration (--skip-starfish)" | tee -a "$LOG_FILE"
@@ -134,7 +148,11 @@ if [ "$SKIP_STARFISH" = false ]; then
     echo "═══════════════════════════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
     echo "STEP 5: Setting Up Archive Demo (Archive Targets and Jobs)" | tee -a "$LOG_FILE"
     echo "═══════════════════════════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
-    "$SCRIPT_DIR/setup_archive_demo.sh"
+    if [ -n "$AGENT_ADDRESS" ]; then
+        "$SCRIPT_DIR/setup_archive_demo.sh" --agent-address "$AGENT_ADDRESS"
+    else
+        "$SCRIPT_DIR/setup_archive_demo.sh"
+    fi
     echo "" | tee -a "$LOG_FILE"
 fi
 

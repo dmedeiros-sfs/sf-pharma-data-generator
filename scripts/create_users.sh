@@ -39,7 +39,19 @@ for username in $users; do
     department=$(jq -r ".users[] | select(.username==\"$username\") | .department" "$CONFIG_FILE")
     
     if id "$username" &>/dev/null; then
-        echo "User $username already exists, skipping..." | tee -a "$LOG_FILE"
+        echo "User $username already exists, skipping creation..." | tee -a "$LOG_FILE"
+        # Ensure home directory exists
+        if [ ! -d "/home/$username" ]; then
+            mkdir -p "/home/$username"
+            chown "$username:$username" "/home/$username"
+            chmod 755 "/home/$username"
+            echo "  Created missing home directory for $username" | tee -a "$LOG_FILE"
+        fi
+        # Ensure user is in starfish group
+        if ! groups "$username" | grep -q '\bstarfish\b'; then
+            usermod -aG starfish "$username"
+            echo "  Added $username to starfish group" | tee -a "$LOG_FILE"
+        fi
         continue
     fi
     
