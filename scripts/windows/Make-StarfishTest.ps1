@@ -1,5 +1,6 @@
 # Make-StarfishTest.ps1
 # Builds %TEMP%\Starfish_Test with dummy files (1-2 MB each) and nested dirs.
+# Compatible with Windows PowerShell 2.0+ and PowerShell 7.x.
 
 $Root = Join-Path $env:TEMP 'Starfish_Test'
 
@@ -13,35 +14,31 @@ if (Test-Path $Root) {
     Remove-Item $Root -Recurse -Force
 }
 
-# Dir layout: root, two subdirs, and a nested subdir inside one of them
-$Dirs = @(
-    $Root
-    (Join-Path $Root 'DirA')
-    (Join-Path $Root 'DirB')
-    (Join-Path $Root 'DirA\DirA_Sub')
-)
-$Dirs | ForEach-Object { New-Item -ItemType Directory -Path $_ -Force | Out-Null }
-
 # Write a dummy file of random size between 1 and 2 MB
 function New-DummyFile {
     param([string]$Path)
     $size  = Get-Random -Minimum 1MB -Maximum 2MB
     $bytes = New-Object byte[] $size
-    [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
-    [System.IO.File]::WriteAllBytes($Path, $bytes)
+    (New-Object Random).NextBytes($bytes)
+    # Resolve to a full path so WriteAllBytes never uses the process CWD
+    $full = [System.IO.Path]::GetFullPath($Path)
+    [System.IO.File]::WriteAllBytes($full, $bytes)
 }
 
-# How many files to drop in each dir
-$Plan = @{
-    $Root                              = 4
-    (Join-Path $Root 'DirA')           = 3
-    (Join-Path $Root 'DirB')           = 3
-    (Join-Path $Root 'DirA\DirA_Sub')  = 2
-}
+# dir = relative path under $Root, count = files to drop in it
+# Ordered list so layout is deterministic on every PS version
+$Plan = @(
+    @{ Sub = '';              Count = 4 }
+    @{ Sub = 'DirA';          Count = 3 }
+    @{ Sub = 'DirB';          Count = 3 }
+    @{ Sub = 'DirA\DirA_Sub'; Count = 2 }
+)
 
-foreach ($dir in $Plan.Keys) {
-    1..$Plan[$dir] | ForEach-Object {
-        New-DummyFile (Join-Path $dir ("file_{0:D2}.dat" -f $_))
+foreach ($item in $Plan) {
+    $dir = if ($item.Sub) { Join-Path $Root $item.Sub } else { $Root }
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    for ($i = 1; $i -le $item.Count; $i++) {
+        New-DummyFile (Join-Path $dir ("file_{0:D2}.dat" -f $i))
     }
 }
 
