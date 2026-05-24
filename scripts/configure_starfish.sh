@@ -1,57 +1,49 @@
 #!/bin/bash
 #
 # configure_starfish.sh - Configure Starfish zones, tag sets, and permissions
+#                         for a dataset.
 #
-# This script:
-# 1. Creates a volume per user (for home directories)
-# 2. Creates a shared volume for zone data
-# 3. Creates 3 zones with paths
-# 4. Creates 3 tag sets with tags
-# 5. Assigns zone admins and members
-# 6. Binds tag sets to zones
-# 7. Sets up capabilities and roles
+# Reads the dataset config for: per-user volumes, shared volume, zones (with
+# template_key -> path), tag sets, zone members/admins, and the global tagging
+# role. All sf object names come from the config so multiple datasets coexist.
 #
 # Options:
+#   --dataset NAME        pharma | education (default: pharma)
+#   --config PATH         Explicit path to a dataset config JSON
 #   --agent-address URL   Use this agent address for volume creation
-#                         (required when running on an agent, not the server)
+#   --server              Running on the Starfish server (no agent)
 #
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="$SCRIPT_DIR/../config/pharma_config.json"
-LOG_FILE="$SCRIPT_DIR/../output/starfish_config.log"
+source "$SCRIPT_DIR/lib/config.sh"
 
-#############################################################################
-# CONFIGURATION - Edit these values for your environment
-#############################################################################
-SHARED_VOLUME_NAME="efs"
-SHARED_VOLUME_MOUNT="/mnt/efs"
 AGENT_ADDRESS=""
 IS_SERVER=false
-#############################################################################
 
-# Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --agent-address)
-            AGENT_ADDRESS="$2"
-            shift 2
-            ;;
-        --server)
-            IS_SERVER=true
-            shift
-            ;;
-        *)
-            echo "Unknown option: $1"
-            echo "Usage: $0 [--agent-address URL] [--server]"
-            exit 1
-            ;;
+        --dataset) CONFIG_FILE="$(dataset_config_path "$2")"; shift 2 ;;
+        --config)  CONFIG_FILE="$2"; shift 2 ;;
+        --agent-address) AGENT_ADDRESS="$2"; shift 2 ;;
+        --server) IS_SERVER=true; shift ;;
+        *) echo "Unknown option: $1"; echo "Usage: $0 [--dataset NAME|--config PATH] [--agent-address URL] [--server]"; exit 1 ;;
     esac
 done
+[ -f "$CONFIG_FILE" ] || { echo "Error: config not found: $CONFIG_FILE"; exit 1; }
 
+LOG_FILE="$SCRIPT_DIR/../output/starfish_config.log"
 mkdir -p "$SCRIPT_DIR/../output"
+
+SHARED_VOLUME_NAME="$(cfg_shared_vol_name)"
+SHARED_VOLUME_MOUNT="$(cfg_shared_vol_mount)"
+GLOBAL_ROLE="$(cfg_global_role_name)"
+GLOBAL_ROLE_CAP="$(cfg_global_role_cap)"
+
 echo "=== Starfish Configuration Started: $(date) ===" | tee -a "$LOG_FILE"
+echo "Dataset config: $CONFIG_FILE ($(cfg_label))" | tee -a "$LOG_FILE"
+echo "Shared volume: $SHARED_VOLUME_NAME ($SHARED_VOLUME_MOUNT)" | tee -a "$LOG_FILE"
 
 # If no agent address provided and not explicitly server, ask user
 if [ -z "$AGENT_ADDRESS" ] && [ "$IS_SERVER" = false ]; then
@@ -63,7 +55,7 @@ if [ -z "$AGENT_ADDRESS" ] && [ "$IS_SERVER" = false ]; then
     echo "  - Type 'server' or 's' if running on the Starfish server"
     echo ""
     read -p "[$suggested_url]: " user_input
-    
+
     if [[ "$user_input" =~ ^[Ss](erver)?$ ]]; then
         AGENT_ADDRESS=""
     elif [ -z "$user_input" ]; then
@@ -94,13 +86,11 @@ echo "==========================================================================
 echo "STEP 0: Creating Volumes" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
 
-# Helper function: wait for all pending scans to complete
 wait_for_pending_scans() {
     echo "    Waiting for pending scans to complete..." | tee -a "$LOG_FILE"
     while true; do
         pending_output=$(sf scan pending 2>/dev/null || true)
         pending=$(echo "$pending_output" | grep -cE "RUNNING|PENDING" || echo "0")
-        # Ensure we have a single integer
         pending=$(echo "$pending" | head -1 | tr -d '[:space:]')
         if [ -z "$pending" ] || [ "$pending" -eq 0 ] 2>/dev/null; then
             break
@@ -111,7 +101,6 @@ wait_for_pending_scans() {
     echo "    No pending scans" | tee -a "$LOG_FILE"
 }
 
-# Helper function: run diff scan on a volume
 run_diff_scan() {
     local vol_name="$1"
     echo "    Running diff scan on '$vol_name'..." | tee -a "$LOG_FILE"
@@ -119,7 +108,6 @@ run_diff_scan() {
     echo "    Scan complete for '$vol_name'" | tee -a "$LOG_FILE"
 }
 
-# Helper function: add a volume with optional agent address
 add_volume() {
     local vol_name="$1"
     local vol_mount="$2"
@@ -134,13 +122,13 @@ add_volume() {
 echo "" | tee -a "$LOG_FILE"
 echo "Creating per-user volumes..." | tee -a "$LOG_FILE"
 
-users=$(jq -r '.users[] | .username' "$CONFIG_FILE")
+users=$(cfg '.users[] | .username')
 declare -a ALL_VOLUMES=()
 
 for username in $users; do
     vol_name="${username}"
     vol_mount="/home/${username}"
-    
+
     if sf volume show "$vol_name" &>/dev/null; then
         echo "  Volume '$vol_name' already exists" | tee -a "$LOG_FILE"
     else
@@ -162,15 +150,12 @@ else
 fi
 ALL_VOLUMES+=("$SHARED_VOLUME_NAME")
 
-# Wait for all auto-triggered scans to complete
 echo "" | tee -a "$LOG_FILE"
 echo "Waiting for auto-triggered scans to complete..." | tee -a "$LOG_FILE"
 wait_for_pending_scans
 
-# Now run diff scan on each volume sequentially
 echo "" | tee -a "$LOG_FILE"
 echo "Running diff scans on all volumes..." | tee -a "$LOG_FILE"
-
 for vol_name in "${ALL_VOLUMES[@]}"; do
     run_diff_scan "$vol_name"
 done
@@ -178,28 +163,26 @@ done
 echo "" | tee -a "$LOG_FILE"
 echo "All volume scans complete." | tee -a "$LOG_FILE"
 
-
 echo "" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
 echo "STEP 1: Creating Tag Sets" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
 
-tagsets=$(jq -r '.tagsets[] | .name' "$CONFIG_FILE")
+tagsets=$(cfg '.tagsets[] | .name')
 
 for tagset in $tagsets; do
-    description=$(jq -r ".tagsets[] | select(.name==\"$tagset\") | .description" "$CONFIG_FILE")
-    
+    description=$(cfg ".tagsets[] | select(.name==\"$tagset\") | .description")
+
     echo "" | tee -a "$LOG_FILE"
     echo "Creating tag set: $tagset" | tee -a "$LOG_FILE"
-    
+
     if sf tagset show "$tagset" &>/dev/null; then
         echo "  Tag set '$tagset' already exists, skipping creation" | tee -a "$LOG_FILE"
     else
         sf tagset add "$tagset" --description "$description" --pinnable --inheritable 2>&1 | tee -a "$LOG_FILE" || true
     fi
-    
-    tags=$(jq -r ".tagsets[] | select(.name==\"$tagset\") | .tags[]" "$CONFIG_FILE")
-    
+
+    tags=$(cfg ".tagsets[] | select(.name==\"$tagset\") | .tags[]")
     for tag in $tags; do
         echo "  Adding tag: $tag" | tee -a "$LOG_FILE"
         sf tagset tag add "$tagset" "$tag" 2>&1 | tee -a "$LOG_FILE" || true
@@ -211,25 +194,23 @@ echo "==========================================================================
 echo "STEP 2: Creating Zones" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
 
-zones=$(jq -r '.zones[] | .name' "$CONFIG_FILE")
+zones=$(cfg '.zones[] | .name')
 
 for zone in $zones; do
-    description=$(jq -r ".zones[] | select(.name==\"$zone\") | .description" "$CONFIG_FILE")
-    
+    description=$(cfg ".zones[] | select(.name==\"$zone\") | .description")
+
     echo "" | tee -a "$LOG_FILE"
     echo "Creating zone: $zone" | tee -a "$LOG_FILE"
-    
+
     if sf zone show "$zone" &>/dev/null; then
         echo "  Zone '$zone' already exists, skipping creation" | tee -a "$LOG_FILE"
     else
         sf zone add "$zone" --description "$description" 2>&1 | tee -a "$LOG_FILE" || true
     fi
-    
-    # Add path to zone (from shared volume)
+
     echo "  Adding path: $SHARED_VOLUME_NAME:/$zone" | tee -a "$LOG_FILE"
     sf zone path add "$zone" "$SHARED_VOLUME_NAME:/$zone" 2>&1 | tee -a "$LOG_FILE" || true
-    
-    # Add capabilities to zone
+
     echo "  Adding capabilities: TagApplier, RecoverExecutor" | tee -a "$LOG_FILE"
     sf zone capability add "$zone" TagApplier --delegable 2>&1 | tee -a "$LOG_FILE" || true
     sf zone capability add "$zone" RecoverExecutor --delegable 2>&1 | tee -a "$LOG_FILE" || true
@@ -241,8 +222,7 @@ echo "STEP 3: Assigning Zone Admins" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
 
 for user in $users; do
-    admin_zones=$(jq -r ".users[] | select(.username==\"$user\") | .zone_admin[]" "$CONFIG_FILE" 2>/dev/null || echo "")
-    
+    admin_zones=$(cfg ".users[] | select(.username==\"$user\") | .zone_admin[]" 2>/dev/null || echo "")
     for zone in $admin_zones; do
         [ -z "$zone" ] && continue
         echo "" | tee -a "$LOG_FILE"
@@ -257,8 +237,7 @@ echo "STEP 4: Adding Zone Members (non-admin)" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
 
 for user in $users; do
-    member_zones=$(jq -r ".users[] | select(.username==\"$user\") | .zone_member[]" "$CONFIG_FILE" 2>/dev/null || echo "")
-    
+    member_zones=$(cfg ".users[] | select(.username==\"$user\") | .zone_member[]" 2>/dev/null || echo "")
     for zone in $member_zones; do
         [ -z "$zone" ] && continue
         echo "" | tee -a "$LOG_FILE"
@@ -273,8 +252,7 @@ echo "STEP 5: Binding Tag Sets to Zones" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
 
 for tagset in $tagsets; do
-    bound_zones=$(jq -r ".tagsets[] | select(.name==\"$tagset\") | .zones[]" "$CONFIG_FILE")
-    
+    bound_zones=$(cfg ".tagsets[] | select(.name==\"$tagset\") | .zones[]")
     for zone in $bound_zones; do
         [ -z "$zone" ] && continue
         echo "" | tee -a "$LOG_FILE"
@@ -289,15 +267,15 @@ echo "STEP 6: Creating Global Role for TagApplier" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
 
 echo "" | tee -a "$LOG_FILE"
-echo "Creating global role 'PharmaTaggers' for all zone users" | tee -a "$LOG_FILE"
+echo "Creating global role '$GLOBAL_ROLE' for all zone users" | tee -a "$LOG_FILE"
 
-if sf role global show PharmaTaggers &>/dev/null; then
-    echo "  Global role 'PharmaTaggers' already exists" | tee -a "$LOG_FILE"
+if sf role global show "$GLOBAL_ROLE" &>/dev/null; then
+    echo "  Global role '$GLOBAL_ROLE' already exists" | tee -a "$LOG_FILE"
 else
-    sf role global add PharmaTaggers 2>&1 | tee -a "$LOG_FILE" || true
+    sf role global add "$GLOBAL_ROLE" 2>&1 | tee -a "$LOG_FILE" || true
 fi
-sf role global grant PharmaTaggers TagApplier 2>&1 | tee -a "$LOG_FILE" || true
-sf role global zone add PharmaTaggers --all-zones 2>&1 | tee -a "$LOG_FILE" || true
+sf role global grant "$GLOBAL_ROLE" "$GLOBAL_ROLE_CAP" 2>&1 | tee -a "$LOG_FILE" || true
+sf role global zone add "$GLOBAL_ROLE" --all-zones 2>&1 | tee -a "$LOG_FILE" || true
 
 echo "" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
@@ -307,7 +285,7 @@ echo "==========================================================================
 for zone in $zones; do
     echo "" | tee -a "$LOG_FILE"
     echo "Creating recovery role for zone: $zone" | tee -a "$LOG_FILE"
-    
+
     if sf zone role show "${zone}.LocalRestorers" &>/dev/null; then
         echo "  Role '${zone}.LocalRestorers' already exists" | tee -a "$LOG_FILE"
     else
@@ -323,7 +301,7 @@ echo "=== Starfish Configuration Completed: $(date) ===" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
 
 echo "" | tee -a "$LOG_FILE"
-echo "SUMMARY:" | tee -a "$LOG_FILE"
+echo "SUMMARY ($(cfg_label)):" | tee -a "$LOG_FILE"
 echo "--------" | tee -a "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"
 echo "Volumes created:" | tee -a "$LOG_FILE"
@@ -332,17 +310,21 @@ for username in $users; do
 done
 echo "  - $SHARED_VOLUME_NAME ($SHARED_VOLUME_MOUNT) [shared zones]" | tee -a "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"
-echo "Zones created:     3 (clinical_trials, drug_discovery, regulatory)" | tee -a "$LOG_FILE"
-echo "Tag sets created:  3 (document_status, confidentiality, therapeutic_area)" | tee -a "$LOG_FILE"
+echo "Zones created:    $(echo "$zones" | tr '\n' ' ')" | tee -a "$LOG_FILE"
+echo "Tag sets created: $(echo "$tagsets" | tr '\n' ' ')" | tee -a "$LOG_FILE"
+echo "Global role:      $GLOBAL_ROLE (grants $GLOBAL_ROLE_CAP on all zones)" | tee -a "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"
 echo "Zone Admins:" | tee -a "$LOG_FILE"
-echo "  - clinical_trials: dthompson" | tee -a "$LOG_FILE"
-echo "  - drug_discovery:  mwatson" | tee -a "$LOG_FILE"
-echo "  - regulatory:      mwatson" | tee -a "$LOG_FILE"
+for zone in $zones; do
+    admins=$(cfg ".users[] | select(.zone_admin | index(\"$zone\")) | .username" | tr '\n' ' ')
+    echo "  - $zone: $admins" | tee -a "$LOG_FILE"
+done
 echo "" | tee -a "$LOG_FILE"
-echo "Zone Members:" | tee -a "$LOG_FILE"
-echo "  - clinical_trials: sleung, kpatel" | tee -a "$LOG_FILE"
-echo "  - drug_discovery:  jbaker, kpatel, akim" | tee -a "$LOG_FILE"
-echo "  - regulatory:      nromero, akim" | tee -a "$LOG_FILE"
+echo "Zone Members (non-admin):" | tee -a "$LOG_FILE"
+for zone in $zones; do
+    members=$(cfg ".users[] | select(.zone_member | index(\"$zone\")) | .username" | tr '\n' ' ')
+    echo "  - $zone: $members" | tee -a "$LOG_FILE"
+done
 echo "" | tee -a "$LOG_FILE"
-echo "User with no zone access (personal files only): rmorgan" | tee -a "$LOG_FILE"
+no_zone=$(cfg '.users[] | select((.zone_admin | length)==0 and (.zone_member | length)==0) | .username' | tr '\n' ' ')
+echo "Users with no zone access (personal files only): $no_zone" | tee -a "$LOG_FILE"

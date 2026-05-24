@@ -2,63 +2,48 @@
 #
 # setup_archive_demo.sh - Create simulated archive targets and run demo jobs
 #
-# This script:
-# 1. Creates 3 volumes to simulate archive destinations (sim-nfs, sim-lustre, sim-s3)
-# 2. Creates 3 archive-targets pointing to these volumes
-# 3. Runs archive jobs (copy and migrate)
-# 4. Runs a restore job
-#
-# The purpose is to create job records visible in the Starfish GUI
+# The simulated archive volumes (sim-nfs/sim-lustre/sim-s3) and their targets
+# (atg-sim-*) are shared infrastructure - created once and reused by any dataset.
+# The archive/restore *source* users come from the dataset config's
+# archive_demo.sources block, so the jobs reference the right users.
 #
 # Options:
+#   --dataset NAME        pharma | education (default: pharma)
+#   --config PATH         Explicit path to a dataset config JSON
 #   --agent-address URL   Use this agent address for volume creation
-#                         (required when running on an agent, not the server)
+#   --server              Running on the Starfish server (no agent)
 #
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOG_FILE="$SCRIPT_DIR/../output/archive_demo.log"
+source "$SCRIPT_DIR/lib/config.sh"
 
 #############################################################################
-# CONFIGURATION
+# Shared simulated archive mount points (dataset-independent)
 #############################################################################
-# Simulated archive target mount points
 SIM_NFS_MOUNT="/mnt/sim-nfs"
 SIM_LUSTRE_MOUNT="/mnt/sim-lustre"
 SIM_S3_MOUNT="/mnt/sim-s3"
 
-# Source volumes for archive jobs (user home volumes)
-# We'll archive from these users' data
-ARCHIVE_TO_NFS_SOURCE="dthompson"      # Copy to NFS
-ARCHIVE_TO_LUSTRE_SOURCE="mwatson"     # Copy to Lustre
-ARCHIVE_TO_S3_SOURCE="sleung"          # Migrate (move) to S3
-
 AGENT_ADDRESS=""
 IS_SERVER=false
-#############################################################################
 
-# Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --agent-address)
-            AGENT_ADDRESS="$2"
-            shift 2
-            ;;
-        --server)
-            IS_SERVER=true
-            shift
-            ;;
-        *)
-            echo "Unknown option: $1"
-            echo "Usage: $0 [--agent-address URL] [--server]"
-            exit 1
-            ;;
+        --dataset) CONFIG_FILE="$(dataset_config_path "$2")"; shift 2 ;;
+        --config)  CONFIG_FILE="$2"; shift 2 ;;
+        --agent-address) AGENT_ADDRESS="$2"; shift 2 ;;
+        --server) IS_SERVER=true; shift ;;
+        *) echo "Unknown option: $1"; echo "Usage: $0 [--dataset NAME|--config PATH] [--agent-address URL] [--server]"; exit 1 ;;
     esac
 done
+[ -f "$CONFIG_FILE" ] || { echo "Error: config not found: $CONFIG_FILE"; exit 1; }
 
+LOG_FILE="$SCRIPT_DIR/../output/archive_demo.log"
 mkdir -p "$SCRIPT_DIR/../output"
 echo "=== Archive Demo Setup Started: $(date) ===" | tee -a "$LOG_FILE"
+echo "Dataset config: $CONFIG_FILE ($(cfg_label))" | tee -a "$LOG_FILE"
 
 # If no agent address provided and not explicitly server, ask user
 if [ -z "$AGENT_ADDRESS" ] && [ "$IS_SERVER" = false ]; then
@@ -70,7 +55,7 @@ if [ -z "$AGENT_ADDRESS" ] && [ "$IS_SERVER" = false ]; then
     echo "  - Type 'server' or 's' if running on the Starfish server"
     echo ""
     read -p "[$suggested_url]: " user_input
-    
+
     if [[ "$user_input" =~ ^[Ss](erver)?$ ]]; then
         AGENT_ADDRESS=""
     elif [ -z "$user_input" ]; then
@@ -90,13 +75,16 @@ if ! command -v sf &> /dev/null; then
     echo "Error: 'sf' command not found. Is Starfish installed?"
     exit 1
 fi
+if ! command -v jq &> /dev/null; then
+    echo "Error: jq is required."
+    exit 1
+fi
 
 echo "" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
 echo "STEP 1: Creating Simulated Archive Target Directories" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
 
-# Create mount point directories
 for mount_dir in "$SIM_NFS_MOUNT" "$SIM_LUSTRE_MOUNT" "$SIM_S3_MOUNT"; do
     if [ ! -d "$mount_dir" ]; then
         echo "Creating directory: $mount_dir" | tee -a "$LOG_FILE"
@@ -106,7 +94,6 @@ for mount_dir in "$SIM_NFS_MOUNT" "$SIM_LUSTRE_MOUNT" "$SIM_S3_MOUNT"; do
     fi
 done
 
-# Create subdirectories for archive destinations
 mkdir -p "$SIM_NFS_MOUNT/archives"
 mkdir -p "$SIM_LUSTRE_MOUNT/archives"
 mkdir -p "$SIM_S3_MOUNT/archives"
@@ -116,13 +103,11 @@ echo "==========================================================================
 echo "STEP 2: Creating Simulated Archive Volumes" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
 
-# Helper function: wait for all pending scans to complete
 wait_for_pending_scans() {
     echo "  Waiting for pending scans to complete..." | tee -a "$LOG_FILE"
     while true; do
         pending_output=$(sf scan pending 2>/dev/null || true)
         pending=$(echo "$pending_output" | grep -cE "RUNNING|PENDING" || echo "0")
-        # Ensure we have a single integer
         pending=$(echo "$pending" | head -1 | tr -d '[:space:]')
         if [ -z "$pending" ] || [ "$pending" -eq 0 ] 2>/dev/null; then
             break
@@ -133,7 +118,6 @@ wait_for_pending_scans() {
     echo "  No pending scans" | tee -a "$LOG_FILE"
 }
 
-# Helper function: run diff scan on a volume
 run_diff_scan() {
     local vol_name="$1"
     echo "  Running diff scan on '$vol_name'..." | tee -a "$LOG_FILE"
@@ -141,7 +125,6 @@ run_diff_scan() {
     echo "  Scan complete for '$vol_name'" | tee -a "$LOG_FILE"
 }
 
-# Helper function: add a volume with optional agent address
 add_volume() {
     local vol_name="$1"
     local vol_mount="$2"
@@ -152,7 +135,6 @@ add_volume() {
     fi
 }
 
-# Create volumes for archive targets
 declare -A SIM_VOLUMES=(
     ["sim-nfs"]="$SIM_NFS_MOUNT"
     ["sim-lustre"]="$SIM_LUSTRE_MOUNT"
@@ -161,7 +143,6 @@ declare -A SIM_VOLUMES=(
 
 for vol_name in "${!SIM_VOLUMES[@]}"; do
     vol_mount="${SIM_VOLUMES[$vol_name]}"
-    
     if sf volume show "$vol_name" &>/dev/null; then
         echo "Volume '$vol_name' already exists" | tee -a "$LOG_FILE"
     else
@@ -170,15 +151,12 @@ for vol_name in "${!SIM_VOLUMES[@]}"; do
     fi
 done
 
-# Wait for all auto-triggered scans to complete
 echo "" | tee -a "$LOG_FILE"
 echo "Waiting for auto-triggered scans to complete..." | tee -a "$LOG_FILE"
 wait_for_pending_scans
 
-# Now run diff scan on each volume sequentially
 echo "" | tee -a "$LOG_FILE"
 echo "Running diff scans on archive volumes..." | tee -a "$LOG_FILE"
-
 for vol_name in "${!SIM_VOLUMES[@]}"; do
     run_diff_scan "$vol_name"
 done
@@ -191,34 +169,22 @@ echo "==========================================================================
 echo "STEP 3: Creating Archive Targets" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
 
-# Archive target format: sf archive-target add NAME volume dst_volume=VOL dst_path=PATH
+create_target() {
+    local name="$1" dst_vol="$2"
+    echo "Creating archive target: $name" | tee -a "$LOG_FILE"
+    if sf archive-target show "$name" &>/dev/null; then
+        echo "  Archive target '$name' already exists" | tee -a "$LOG_FILE"
+    else
+        sf archive-target add "$name" volume dst_volume="$dst_vol" dst_path=archives 2>&1 | tee -a "$LOG_FILE" || true
+    fi
+}
 
-# atg-sim-nfs -> sim-nfs:/archives
-echo "Creating archive target: atg-sim-nfs" | tee -a "$LOG_FILE"
-if sf archive-target show atg-sim-nfs &>/dev/null; then
-    echo "  Archive target 'atg-sim-nfs' already exists" | tee -a "$LOG_FILE"
-else
-    sf archive-target add atg-sim-nfs volume dst_volume=sim-nfs dst_path=archives 2>&1 | tee -a "$LOG_FILE" || true
-fi
-
-# atg-sim-lustre -> sim-lustre:/archives
-echo "Creating archive target: atg-sim-lustre" | tee -a "$LOG_FILE"
-if sf archive-target show atg-sim-lustre &>/dev/null; then
-    echo "  Archive target 'atg-sim-lustre' already exists" | tee -a "$LOG_FILE"
-else
-    sf archive-target add atg-sim-lustre volume dst_volume=sim-lustre dst_path=archives 2>&1 | tee -a "$LOG_FILE" || true
-fi
-
-# atg-sim-s3 -> sim-s3:/archives
-echo "Creating archive target: atg-sim-s3" | tee -a "$LOG_FILE"
-if sf archive-target show atg-sim-s3 &>/dev/null; then
-    echo "  Archive target 'atg-sim-s3' already exists" | tee -a "$LOG_FILE"
-else
-    sf archive-target add atg-sim-s3 volume dst_volume=sim-s3 dst_path=archives 2>&1 | tee -a "$LOG_FILE" || true
-fi
+create_target atg-sim-nfs    sim-nfs
+create_target atg-sim-lustre sim-lustre
+create_target atg-sim-s3     sim-s3
 
 echo "" | tee -a "$LOG_FILE"
-echo "Archive targets created:" | tee -a "$LOG_FILE"
+echo "Archive targets:" | tee -a "$LOG_FILE"
 sf archive-target list 2>&1 | tee -a "$LOG_FILE"
 
 echo "" | tee -a "$LOG_FILE"
@@ -226,12 +192,19 @@ echo "==========================================================================
 echo "STEP 4: Ensuring Source Volumes Are Scanned" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
 
-# Make sure source volumes have been scanned (in case configure_starfish.sh wasn't run)
-echo "Verifying source volumes are scanned..." | tee -a "$LOG_FILE"
+# Read source jobs from the dataset config: user|target|mode
+mapfile -t SOURCES < <(cfg '.archive_demo.sources[] | "\(.user)|\(.target)|\(.mode)"')
 
-for src_vol in "$ARCHIVE_TO_NFS_SOURCE" "$ARCHIVE_TO_LUSTRE_SOURCE" "$ARCHIVE_TO_S3_SOURCE"; do
+if [ ${#SOURCES[@]} -eq 0 ]; then
+    echo "No archive_demo.sources in config; skipping archive jobs." | tee -a "$LOG_FILE"
+    echo "=== Archive Demo Setup Completed: $(date) ===" | tee -a "$LOG_FILE"
+    exit 0
+fi
+
+echo "Verifying source volumes are scanned..." | tee -a "$LOG_FILE"
+for entry in "${SOURCES[@]}"; do
+    src_vol="${entry%%|*}"
     echo "  Checking volume: $src_vol" | tee -a "$LOG_FILE"
-    # Try to query the volume - if it fails or returns no data, run a full scan
     if ! sf query "$src_vol:/" --limit 1 &>/dev/null; then
         echo "    Volume needs scanning, waiting for pending scans..." | tee -a "$LOG_FILE"
         wait_for_pending_scans
@@ -246,30 +219,35 @@ echo "==========================================================================
 echo "STEP 5: Running Archive Jobs" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
 
-echo "" | tee -a "$LOG_FILE"
-echo "--- Archive Job 1: Copy $ARCHIVE_TO_NFS_SOURCE to atg-sim-nfs ---" | tee -a "$LOG_FILE"
-echo "  $ sf archive start --wait $ARCHIVE_TO_NFS_SOURCE:/ atg-sim-nfs" | tee -a "$LOG_FILE"
-sf archive start --wait "$ARCHIVE_TO_NFS_SOURCE:/" atg-sim-nfs 2>&1 | tee -a "$LOG_FILE" || true
-
-echo "" | tee -a "$LOG_FILE"
-echo "--- Archive Job 2: Copy $ARCHIVE_TO_LUSTRE_SOURCE to atg-sim-lustre ---" | tee -a "$LOG_FILE"
-echo "  $ sf archive start --wait $ARCHIVE_TO_LUSTRE_SOURCE:/ atg-sim-lustre" | tee -a "$LOG_FILE"
-sf archive start --wait "$ARCHIVE_TO_LUSTRE_SOURCE:/" atg-sim-lustre 2>&1 | tee -a "$LOG_FILE" || true
-
-echo "" | tee -a "$LOG_FILE"
-echo "--- Archive Job 3: Migrate (move) $ARCHIVE_TO_S3_SOURCE to atg-sim-s3 ---" | tee -a "$LOG_FILE"
-echo "  $ sf archive start --migrate --wait $ARCHIVE_TO_S3_SOURCE:/ atg-sim-s3" | tee -a "$LOG_FILE"
-sf archive start --migrate --wait "$ARCHIVE_TO_S3_SOURCE:/" atg-sim-s3 2>&1 | tee -a "$LOG_FILE" || true
+MIGRATED_SOURCES=()
+job_num=0
+for entry in "${SOURCES[@]}"; do
+    IFS='|' read -r src_vol target mode <<< "$entry"
+    job_num=$((job_num + 1))
+    echo "" | tee -a "$LOG_FILE"
+    if [ "$mode" = "migrate" ]; then
+        echo "--- Archive Job $job_num: Migrate (move) $src_vol to $target ---" | tee -a "$LOG_FILE"
+        echo "  \$ sf archive start --migrate --wait $src_vol:/ $target" | tee -a "$LOG_FILE"
+        sf archive start --migrate --wait "$src_vol:/" "$target" 2>&1 | tee -a "$LOG_FILE" || true
+        MIGRATED_SOURCES+=("$src_vol")
+    else
+        echo "--- Archive Job $job_num: Copy $src_vol to $target ---" | tee -a "$LOG_FILE"
+        echo "  \$ sf archive start --wait $src_vol:/ $target" | tee -a "$LOG_FILE"
+        sf archive start --wait "$src_vol:/" "$target" 2>&1 | tee -a "$LOG_FILE" || true
+    fi
+done
 
 echo "" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
-echo "STEP 6: Running Restore Job from atg-sim-s3" | tee -a "$LOG_FILE"
+echo "STEP 6: Running Restore Jobs (for migrated sources)" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
 
-echo "" | tee -a "$LOG_FILE"
-echo "--- Restore Job: Restore $ARCHIVE_TO_S3_SOURCE from atg-sim-s3 ---" | tee -a "$LOG_FILE"
-echo "  $ sf restore start --wait $ARCHIVE_TO_S3_SOURCE:/" | tee -a "$LOG_FILE"
-sf restore start --wait "$ARCHIVE_TO_S3_SOURCE:/" 2>&1 | tee -a "$LOG_FILE" || true
+for src_vol in "${MIGRATED_SOURCES[@]}"; do
+    echo "" | tee -a "$LOG_FILE"
+    echo "--- Restore Job: Restore $src_vol ---" | tee -a "$LOG_FILE"
+    echo "  \$ sf restore start --wait $src_vol:/" | tee -a "$LOG_FILE"
+    sf restore start --wait "$src_vol:/" 2>&1 | tee -a "$LOG_FILE" || true
+done
 
 echo "" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
@@ -279,7 +257,6 @@ echo "==========================================================================
 echo "" | tee -a "$LOG_FILE"
 echo "Archive Jobs:" | tee -a "$LOG_FILE"
 sf archive list 2>&1 | tee -a "$LOG_FILE" || true
-
 echo "" | tee -a "$LOG_FILE"
 echo "Restore Jobs:" | tee -a "$LOG_FILE"
 sf restore list 2>&1 | tee -a "$LOG_FILE" || true
@@ -290,25 +267,11 @@ echo "=== Archive Demo Setup Completed: $(date) ===" | tee -a "$LOG_FILE"
 echo "============================================================================" | tee -a "$LOG_FILE"
 
 echo "" | tee -a "$LOG_FILE"
-echo "SUMMARY:" | tee -a "$LOG_FILE"
-echo "--------" | tee -a "$LOG_FILE"
-echo "" | tee -a "$LOG_FILE"
-echo "Simulated Archive Volumes:" | tee -a "$LOG_FILE"
-echo "  - sim-nfs    ($SIM_NFS_MOUNT)" | tee -a "$LOG_FILE"
-echo "  - sim-lustre ($SIM_LUSTRE_MOUNT)" | tee -a "$LOG_FILE"
-echo "  - sim-s3     ($SIM_S3_MOUNT)" | tee -a "$LOG_FILE"
-echo "" | tee -a "$LOG_FILE"
-echo "Archive Targets:" | tee -a "$LOG_FILE"
-echo "  - atg-sim-nfs    -> sim-nfs:/archives" | tee -a "$LOG_FILE"
-echo "  - atg-sim-lustre -> sim-lustre:/archives" | tee -a "$LOG_FILE"
-echo "  - atg-sim-s3     -> sim-s3:/archives" | tee -a "$LOG_FILE"
-echo "" | tee -a "$LOG_FILE"
-echo "Archive Jobs Run:" | tee -a "$LOG_FILE"
-echo "  1. $ARCHIVE_TO_NFS_SOURCE -> atg-sim-nfs (COPY)" | tee -a "$LOG_FILE"
-echo "  2. $ARCHIVE_TO_LUSTRE_SOURCE -> atg-sim-lustre (COPY)" | tee -a "$LOG_FILE"
-echo "  3. $ARCHIVE_TO_S3_SOURCE -> atg-sim-s3 (MIGRATE/MOVE)" | tee -a "$LOG_FILE"
-echo "" | tee -a "$LOG_FILE"
-echo "Restore Jobs Run:" | tee -a "$LOG_FILE"
-echo "  1. $ARCHIVE_TO_S3_SOURCE restored from atg-sim-s3" | tee -a "$LOG_FILE"
+echo "SUMMARY ($(cfg_label)):" | tee -a "$LOG_FILE"
+echo "Archive jobs run:" | tee -a "$LOG_FILE"
+for entry in "${SOURCES[@]}"; do
+    IFS='|' read -r src_vol target mode <<< "$entry"
+    echo "  - $src_vol -> $target (${mode^^})" | tee -a "$LOG_FILE"
+done
 echo "" | tee -a "$LOG_FILE"
 echo "Check the Starfish GUI to see all job records!" | tee -a "$LOG_FILE"

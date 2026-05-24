@@ -1,4 +1,24 @@
 {
+  "dataset": {
+    "name": "pharma",
+    "label": "Pharmaceutical Research"
+  },
+
+  "shared_volume": {
+    "name": "efs",
+    "mount": "/mnt/efs"
+  },
+
+  "global_role": {
+    "name": "PharmaTaggers",
+    "capability": "TagApplier"
+  },
+
+  "home": {
+    "subdir": "research",
+    "template_key": "research"
+  },
+
   "users": [
     {
       "username": "dthompson",
@@ -73,31 +93,34 @@
       "comment": "No zone access - personal files only"
     }
   ],
-  
+
   "zones": [
     {
       "name": "clinical_trials",
       "description": "Clinical trial data and patient studies",
+      "template_key": "clinical",
       "path": "/mnt/efs/clinical_trials",
-      "volume": "pharma_vol",
+      "volume": "efs",
       "capabilities": ["TagApplier", "RecoverExecutor"]
     },
     {
       "name": "drug_discovery",
       "description": "Drug discovery research and compound libraries",
+      "template_key": "discovery",
       "path": "/mnt/efs/drug_discovery",
-      "volume": "pharma_vol",
+      "volume": "efs",
       "capabilities": ["TagApplier", "RecoverExecutor"]
     },
     {
       "name": "regulatory",
       "description": "Regulatory submissions and compliance documents",
+      "template_key": "regulatory",
       "path": "/mnt/efs/regulatory",
-      "volume": "pharma_vol",
+      "volume": "efs",
       "capabilities": ["TagApplier", "RecoverExecutor"]
     }
   ],
-  
+
   "tagsets": [
     {
       "name": "document_status",
@@ -118,7 +141,7 @@
       "zones": ["clinical_trials", "drug_discovery"]
     }
   ],
-  
+
   "file_templates": {
     "clinical": [
       "protocol_{id}_v{num}.pdf",
@@ -158,11 +181,19 @@
       "data_summary_{date}_{id}.pptx"
     ]
   },
-  
+
   "directories": {
     "clinical": ["phase1_studies", "phase2_studies", "phase3_studies", "safety_data", "biomarkers"],
     "discovery": ["compound_library", "screening_data", "lead_optimization", "formulations", "pk_studies"],
     "regulatory": ["ind_applications", "nda_submissions", "ema_dossiers", "post_market", "correspondence"],
     "research": ["experiments", "analysis", "publications", "presentations"]
+  },
+
+  "archive_demo": {
+    "sources": [
+      { "user": "dthompson", "target": "atg-sim-nfs",    "mode": "copy" },
+      { "user": "mwatson",   "target": "atg-sim-lustre", "mode": "copy" },
+      { "user": "sleung",    "target": "atg-sim-s3",     "mode": "migrate" }
+    ]
   }
 }

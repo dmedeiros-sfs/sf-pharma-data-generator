@@ -1,56 +1,60 @@
 #!/bin/bash
 #
-# stats.sh - Display statistics about generated data and Starfish configuration
+# stats.sh - Display statistics about generated data and Starfish config
+#
+# Options:
+#   --dataset NAME   pharma | education (default: pharma)
+#   --config PATH    Explicit path to a dataset config JSON
 #
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="$SCRIPT_DIR/../config/pharma_config.json"
+source "$SCRIPT_DIR/lib/config.sh"
 
-echo "═══════════════════════════════════════════════════════════════════════════════"
-echo "            STARFISH PHARMA DEMO - CURRENT STATUS"
-echo "═══════════════════════════════════════════════════════════════════════════════"
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --dataset) CONFIG_FILE="$(dataset_config_path "$2")"; shift 2 ;;
+        --config)  CONFIG_FILE="$2"; shift 2 ;;
+        *) echo "Unknown option: $1"; exit 1 ;;
+    esac
+done
+
+HAVE_JQ=false
+command -v jq &> /dev/null && [ -f "$CONFIG_FILE" ] && HAVE_JQ=true
+
+label="Demo"
+shared_mount="/mnt/efs"
+home_subdir="research"
+if [ "$HAVE_JQ" = true ]; then
+    label="$(cfg_label)"
+    shared_mount="$(cfg_shared_vol_mount)"
+    home_subdir="$(cfg_home_subdir)"
+fi
+
+echo "==============================================================================="
+echo "            STARFISH DEMO - CURRENT STATUS ($label)"
+echo "==============================================================================="
 echo ""
 
-# Users
 echo "USERS"
-echo "─────"
-if command -v jq &> /dev/null && [ -f "$CONFIG_FILE" ]; then
-    users=$(jq -r '.users[] | .username' "$CONFIG_FILE")
+echo "-----"
+if [ "$HAVE_JQ" = true ]; then
+    users=$(cfg '.users[] | .username')
     for user in $users; do
-        if id "$user" &>/dev/null; then
-            full_name=$(jq -r ".users[] | select(.username==\"$user\") | .full_name" "$CONFIG_FILE")
-            status="✓"
-        else
-            full_name=$(jq -r ".users[] | select(.username==\"$user\") | .full_name" "$CONFIG_FILE")
-            status="✗"
-        fi
+        full_name=$(cfg ".users[] | select(.username==\"$user\") | .full_name")
+        if id "$user" &>/dev/null; then status="x"; else status=" "; fi
         printf "  [%s] %-12s - %s\n" "$status" "$user" "$full_name"
     done
 else
-    for user in dthompson mwatson sleung jbaker nromero kpatel akim rmorgan; do
-        if id "$user" &>/dev/null; then
-            echo "  [✓] $user"
-        else
-            echo "  [✗] $user (not created)"
-        fi
-    done
+    echo "  [jq/config unavailable]"
 fi
 echo ""
 
-# User Home Data
 echo "USER HOME DATA"
-echo "──────────────"
-total_home_size=0
+echo "--------------"
 total_home_files=0
-
-if command -v jq &> /dev/null && [ -f "$CONFIG_FILE" ]; then
-    users=$(jq -r '.users[] | .username' "$CONFIG_FILE")
-else
-    users="dthompson mwatson sleung jbaker nromero kpatel akim rmorgan"
-fi
-
+if [ "$HAVE_JQ" = true ]; then users=$(cfg '.users[] | .username'); else users=""; fi
 for user in $users; do
-    research_dir="/home/$user/research"
+    research_dir="/home/$user/$home_subdir"
     if [ -d "$research_dir" ]; then
         size=$(du -sh "$research_dir" 2>/dev/null | cut -f1)
         files=$(find "$research_dir" -type f 2>/dev/null | wc -l)
@@ -58,21 +62,14 @@ for user in $users; do
         total_home_files=$((total_home_files + files))
     fi
 done
-
-if [ -d "/home" ]; then
-    total_home=$(du -sh /home 2>/dev/null | cut -f1)
-    echo "  ────────────────────────────────"
-    printf "  %-12s %8s  (%d total files)\n" "TOTAL:" "$total_home" "$total_home_files"
-fi
+printf "  %-12s (%d total files)\n" "TOTAL:" "$total_home_files"
 echo ""
 
-# Shared Zone Data
-echo "SHARED ZONE DATA"
-echo "────────────────"
-zones="clinical_trials drug_discovery regulatory"
-
+echo "SHARED ZONE DATA ($shared_mount)"
+echo "----------------"
+if [ "$HAVE_JQ" = true ]; then zones=$(cfg '.zones[] | .name'); else zones=""; fi
 for zone in $zones; do
-    zone_dir="/mnt/efs/$zone"
+    zone_dir="$shared_mount/$zone"
     if [ -d "$zone_dir" ]; then
         size=$(du -sh "$zone_dir" 2>/dev/null | cut -f1)
         files=$(find "$zone_dir" -type f 2>/dev/null | wc -l)
@@ -82,18 +79,10 @@ for zone in $zones; do
         printf "  %-20s %8s\n" "$zone:" "[not created]"
     fi
 done
-
-if [ -d "/mnt/efs" ]; then
-    total_shared=$(du -sh /mnt/efs 2>/dev/null | cut -f1)
-    total_shared_files=$(find /mnt/efs -type f 2>/dev/null | wc -l)
-    echo "  ────────────────────────────────────"
-    printf "  %-20s %8s  (%d total files)\n" "TOTAL:" "$total_shared" "$total_shared_files"
-fi
 echo ""
 
-# Starfish Configuration
 echo "STARFISH CONFIGURATION"
-echo "──────────────────────"
+echo "----------------------"
 if command -v sf &> /dev/null; then
     echo "  Zones:"
     sf zone list 2>/dev/null | head -20 || echo "    (unable to list zones)"
@@ -101,28 +90,13 @@ if command -v sf &> /dev/null; then
     echo "  Tag Sets:"
     sf tagset list 2>/dev/null | head -20 || echo "    (unable to list tagsets)"
 else
-    echo "  [sf command not available - configuration status unknown]"
-    echo ""
-    echo "  Expected configuration:"
-    echo "    Zones:    clinical_trials, drug_discovery, regulatory"
-    echo "    Tag Sets: document_status, confidentiality, therapeutic_area"
+    echo "  [sf command not available]"
+    if [ "$HAVE_JQ" = true ]; then
+        echo "  Expected zones:    $(echo "$zones" | tr '\n' ' ')"
+        echo "  Expected tag sets: $(cfg '.tagsets[] | .name' | tr '\n' ' ')"
+    fi
 fi
 echo ""
-
-# Directory Structure Sample
-echo "DIRECTORY STRUCTURE SAMPLE"
-echo "──────────────────────────"
-if [ -d "/mnt/efs/clinical_trials" ]; then
-    echo "  /mnt/efs/clinical_trials/"
-    ls -la /mnt/efs/clinical_trials/ 2>/dev/null | head -8 | sed 's/^/    /'
-fi
-if [ -d "/mnt/efs/drug_discovery" ]; then
-    echo ""
-    echo "  /mnt/efs/drug_discovery/"
-    ls -la /mnt/efs/drug_discovery/ 2>/dev/null | head -8 | sed 's/^/    /'
-fi
-echo ""
-
-echo "═══════════════════════════════════════════════════════════════════════════════"
+echo "==============================================================================="
 echo "End of status report - $(date)"
-echo "═══════════════════════════════════════════════════════════════════════════════"
+echo "==============================================================================="

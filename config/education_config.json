@@ -1,0 +1,200 @@
+{
+  "dataset": {
+    "name": "education",
+    "label": "University Research Computing"
+  },
+
+  "shared_volume": {
+    "name": "campus",
+    "mount": "/mnt/campus"
+  },
+
+  "global_role": {
+    "name": "CampusTaggers",
+    "capability": "TagApplier"
+  },
+
+  "home": {
+    "subdir": "research",
+    "template_key": "academic"
+  },
+
+  "users": [
+    {
+      "username": "pchen",
+      "full_name": "Prof. Patricia Chen",
+      "role": "Principal Investigator",
+      "department": "Department of Genomics",
+      "zone_admin": ["genomics_lab"],
+      "zone_member": [],
+      "comment": "Zone1 admin - PI of the genomics lab"
+    },
+    {
+      "username": "rkumar",
+      "full_name": "Dr. Raj Kumar",
+      "role": "HPC Systems Administrator",
+      "department": "Research Computing",
+      "zone_admin": ["hpc_scratch", "research_commons"],
+      "zone_member": [],
+      "comment": "Zone2 and Zone3 admin - manages cluster storage"
+    },
+    {
+      "username": "msantos",
+      "full_name": "Maria Santos",
+      "role": "PhD Candidate",
+      "department": "Department of Genomics",
+      "zone_admin": [],
+      "zone_member": ["genomics_lab"],
+      "comment": "Zone1 member only"
+    },
+    {
+      "username": "tobrien",
+      "full_name": "Dr. Thomas O'Brien",
+      "role": "Postdoctoral Researcher",
+      "department": "Computational Biology",
+      "zone_admin": [],
+      "zone_member": ["hpc_scratch"],
+      "comment": "Zone2 member only"
+    },
+    {
+      "username": "lwang",
+      "full_name": "Li Wang",
+      "role": "Research Data Librarian",
+      "department": "University Library",
+      "zone_admin": [],
+      "zone_member": ["research_commons"],
+      "comment": "Zone3 member only - curates shared data and publications"
+    },
+    {
+      "username": "jadebayo",
+      "full_name": "Joshua Adebayo",
+      "role": "Graduate Research Assistant",
+      "department": "Computational Biology",
+      "zone_admin": [],
+      "zone_member": ["genomics_lab", "hpc_scratch"],
+      "comment": "Zone1 and Zone2 member"
+    },
+    {
+      "username": "efoster",
+      "full_name": "Dr. Emily Foster",
+      "role": "Lab Manager",
+      "department": "Department of Genomics",
+      "zone_admin": [],
+      "zone_member": ["hpc_scratch", "research_commons"],
+      "comment": "Zone2 and Zone3 member"
+    },
+    {
+      "username": "dnguyen",
+      "full_name": "David Nguyen",
+      "role": "Undergraduate Researcher",
+      "department": "Undergraduate Studies",
+      "zone_admin": [],
+      "zone_member": [],
+      "comment": "No zone access - personal files only"
+    }
+  ],
+
+  "zones": [
+    {
+      "name": "genomics_lab",
+      "description": "Genomics research lab datasets and sequencing output",
+      "template_key": "genomics",
+      "path": "/mnt/campus/genomics_lab",
+      "volume": "campus",
+      "capabilities": ["TagApplier", "RecoverExecutor"]
+    },
+    {
+      "name": "hpc_scratch",
+      "description": "HPC scratch space for active compute jobs",
+      "template_key": "hpc",
+      "path": "/mnt/campus/hpc_scratch",
+      "volume": "campus",
+      "capabilities": ["TagApplier", "RecoverExecutor"]
+    },
+    {
+      "name": "research_commons",
+      "description": "Shared research data, grant materials, and publications",
+      "template_key": "commons",
+      "path": "/mnt/campus/research_commons",
+      "volume": "campus",
+      "capabilities": ["TagApplier", "RecoverExecutor"]
+    }
+  ],
+
+  "tagsets": [
+    {
+      "name": "data_classification",
+      "description": "Data sensitivity and governance level",
+      "tags": ["public", "internal", "sensitive", "restricted", "ferpa_protected"],
+      "zones": ["genomics_lab", "hpc_scratch", "research_commons"]
+    },
+    {
+      "name": "project_status",
+      "description": "Research project lifecycle status",
+      "tags": ["active", "archived", "published", "embargoed", "retired"],
+      "zones": ["genomics_lab", "hpc_scratch", "research_commons"]
+    },
+    {
+      "name": "funding_source",
+      "description": "Grant or funding agency backing the data",
+      "tags": ["nsf", "nih", "doe", "internal", "industry", "unfunded"],
+      "zones": ["genomics_lab", "research_commons"]
+    }
+  ],
+
+  "file_templates": {
+    "genomics": [
+      "sample_{id}_R1.fastq.gz",
+      "sample_{id}_R2.fastq.gz",
+      "alignment_{id}.bam",
+      "variants_{date}_{num}.vcf",
+      "qc_report_{id}.html",
+      "expression_matrix_{date}.csv",
+      "reference_{id}.fasta",
+      "pipeline_run_{date}.log"
+    ],
+    "hpc": [
+      "sim_output_{id}_{num}.h5",
+      "checkpoint_{date}_{num}.ckpt",
+      "slurm-{id}.out",
+      "input_deck_{id}.inp",
+      "mesh_{id}.vtk",
+      "trajectory_{date}.dcd",
+      "benchmark_{num}.json",
+      "post_analysis_{id}.npz"
+    ],
+    "commons": [
+      "grant_proposal_{id}_v{num}.docx",
+      "manuscript_{id}_v{num}.pdf",
+      "shared_dataset_{date}_{num}.csv",
+      "irb_protocol_{id}.pdf",
+      "poster_{id}.pptx",
+      "data_management_plan_{id}.docx",
+      "supplementary_{date}.xlsx",
+      "preprint_{id}.pdf"
+    ],
+    "academic": [
+      "lecture_notes_{id}.pdf",
+      "problem_set_{num}.pdf",
+      "thesis_draft_{id}_v{num}.docx",
+      "literature_review_{num}.pdf",
+      "analysis_notebook_{id}.ipynb",
+      "seminar_slides_{date}.pptx"
+    ]
+  },
+
+  "directories": {
+    "genomics": ["sequencing_runs", "alignments", "variant_calls", "reference_genomes", "qc_reports"],
+    "hpc": ["simulations", "checkpoints", "job_logs", "input_decks", "post_processing"],
+    "commons": ["grant_proposals", "publications", "shared_datasets", "presentations", "protocols"],
+    "academic": ["coursework", "thesis", "literature", "notebooks"]
+  },
+
+  "archive_demo": {
+    "sources": [
+      { "user": "pchen",  "target": "atg-sim-nfs",    "mode": "copy" },
+      { "user": "rkumar", "target": "atg-sim-lustre", "mode": "copy" },
+      { "user": "msantos", "target": "atg-sim-s3",    "mode": "migrate" }
+    ]
+  }
+}

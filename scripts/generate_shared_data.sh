@@ -1,22 +1,39 @@
 #!/bin/bash
 #
-# generate_shared_data.sh - Generate shared data for zones
-# Creates data in /mnt/efs/{clinical_trials,drug_discovery,regulatory}
+# generate_shared_data.sh - Generate shared zone data for a dataset
+# Iterates every zone in the config and fills it from that zone's template_key.
+# Creates data under <shared_volume.mount>/<zone> for each zone.
+#
+# Options:
+#   --dataset NAME    pharma | education (default: pharma)
+#   --config PATH     Explicit path to a dataset config JSON
 #
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="$SCRIPT_DIR/../config/pharma_config.json"
-LOG_FILE="$SCRIPT_DIR/../output/shared_data_generation.log"
+source "$SCRIPT_DIR/lib/config.sh"
 
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --dataset) CONFIG_FILE="$(dataset_config_path "$2")"; shift 2 ;;
+        --config)  CONFIG_FILE="$2"; shift 2 ;;
+        *) echo "Unknown option: $1"; exit 1 ;;
+    esac
+done
+[ -f "$CONFIG_FILE" ] || { echo "Error: config not found: $CONFIG_FILE"; exit 1; }
+
+LOG_FILE="$SCRIPT_DIR/../output/shared_data_generation.log"
 mkdir -p "$SCRIPT_DIR/../output"
 echo "=== Shared Data Generation Started: $(date) ===" | tee -a "$LOG_FILE"
+echo "Dataset config: $CONFIG_FILE ($(cfg_label))" | tee -a "$LOG_FILE"
 
 if ! command -v jq &> /dev/null; then
     echo "Error: jq is required. Install with: sudo apt-get install jq"
     exit 1
 fi
+
+SHARED_MOUNT="$(cfg_shared_vol_mount)"
 
 random_range() {
     local min=$1
@@ -29,203 +46,103 @@ generate_filename() {
     local id=$2
     local num=$3
     local date=$(date +%Y%m%d)
-    
+
     filename="$template"
     filename="${filename//\{id\}/$id}"
     filename="${filename//\{num\}/$num}"
     filename="${filename//\{date\}/$date}"
-    
+
     echo "$filename"
 }
 
 create_file() {
     local filepath=$1
     local size_kb=$2
-    
+
     dd if=/dev/urandom of="$filepath" bs=1K count=$size_kb status=none 2>/dev/null || \
     truncate -s ${size_kb}K "$filepath"
 }
 
-# Create zone directories
-echo "Creating zone directories..." | tee -a "$LOG_FILE"
-mkdir -p /mnt/efs/{clinical_trials,drug_discovery,regulatory}
+# Per-zone budget derived from the zone count (~400MB shared total)
+zones=$(cfg '.zones[] | .name')
+num_zones=$(cfg '.zones | length')
+[ -z "$num_zones" ] || [ "$num_zones" -lt 1 ] 2>/dev/null && num_zones=1
+MAX_TOTAL_KB=409600
+MAX_ZONE_KB=$((MAX_TOTAL_KB / num_zones))
 
 total_size=0
-MAX_TOTAL_KB=409600  # ~400MB for shared data
-MAX_ZONE_KB=136533   # ~133MB per zone (400MB / 3 zones)
 
-# ============================================================================
-# CLINICAL TRIALS ZONE (Zone 1)
-# ============================================================================
-echo "" | tee -a "$LOG_FILE"
-echo "=== Creating Clinical Trials Zone Data ===" | tee -a "$LOG_FILE"
+for zone in $zones; do
+    template_key="$(cfg_zone_template_key "$zone")"
 
-mapfile -t clinical_templates < <(jq -r '.file_templates.clinical[]' "$CONFIG_FILE")
-mapfile -t clinical_dirs < <(jq -r '.directories.clinical[]' "$CONFIG_FILE")
+    echo "" | tee -a "$LOG_FILE"
+    echo "=== Creating Zone Data: $zone (templates: $template_key) ===" | tee -a "$LOG_FILE"
 
-# Get zone1 members for ownership
-zone1_users=$(jq -r '.users[] | select(.zone_admin[] == "clinical_trials" or .zone_member[] == "clinical_trials") | .username' "$CONFIG_FILE")
-zone1_array=($zone1_users)
-zone1_size=0
+    mapfile -t zone_templates < <(cfg ".file_templates.${template_key}[]")
+    mapfile -t zone_dirs < <(cfg ".directories.${template_key}[]")
 
-for dir in "${clinical_dirs[@]}"; do
-    [ -z "$dir" ] && continue
-    [ $zone1_size -ge $MAX_ZONE_KB ] && break
-    
-    dir_path="/mnt/efs/clinical_trials/$dir"
-    mkdir -p "$dir_path"
-    
-    num_files=$(random_range 8 15)
-    echo "  Creating $dir ($num_files files)..." | tee -a "$LOG_FILE"
-    
-    for ((i=1; i<=num_files; i++)); do
-        [ $zone1_size -ge $MAX_ZONE_KB ] && break
-        
-        template="${clinical_templates[$((RANDOM % ${#clinical_templates[@]}))]}"
-        filename=$(generate_filename "$template" "$RANDOM" "$i")
-        filepath="$dir_path/$filename"
-        
-        # Varied file sizes
-        roll=$((RANDOM % 100))
-        if [ $roll -lt 60 ]; then
-            size_kb=$(random_range 5 100)
-        elif [ $roll -lt 90 ]; then
-            size_kb=$(random_range 100 2048)
-        else
-            size_kb=$(random_range 2048 10240)
-        fi
-        
-        create_file "$filepath" $size_kb
-        zone1_size=$((zone1_size + size_kb))
-        total_size=$((total_size + size_kb))
-        
-        # Assign to random zone member
-        if [ ${#zone1_array[@]} -gt 0 ]; then
-            owner="${zone1_array[$((RANDOM % ${#zone1_array[@]}))]}"
-            chown "$owner:$owner" "$filepath" 2>/dev/null || true
-        fi
+    if [ ${#zone_templates[@]} -eq 0 ] || [ ${#zone_dirs[@]} -eq 0 ]; then
+        echo "  WARNING: no templates/dirs under key '${template_key}', skipping zone" | tee -a "$LOG_FILE"
+        continue
+    fi
+
+    # Users who can own files in this zone (admins + members).
+    # Uses (.zone_admin + .zone_member) so members are not dropped when a user
+    # has an empty zone_admin array.
+    mapfile -t zone_users < <(cfg ".users[] | select((.zone_admin + .zone_member) | index(\"$zone\")) | .username")
+
+    zone_root="${SHARED_MOUNT}/${zone}"
+    mkdir -p "$zone_root"
+    zone_size=0
+
+    for dir in "${zone_dirs[@]}"; do
+        [ -z "$dir" ] && continue
+        [ $zone_size -ge $MAX_ZONE_KB ] && break
+
+        dir_path="$zone_root/$dir"
+        mkdir -p "$dir_path"
+
+        num_files=$(random_range 8 15)
+        echo "  Creating $dir ($num_files files)..." | tee -a "$LOG_FILE"
+
+        for ((i=1; i<=num_files; i++)); do
+            [ $zone_size -ge $MAX_ZONE_KB ] && break
+
+            template="${zone_templates[$((RANDOM % ${#zone_templates[@]}))]}"
+            filename=$(generate_filename "$template" "$RANDOM" "$i")
+            filepath="$dir_path/$filename"
+
+            roll=$((RANDOM % 100))
+            if [ $roll -lt 60 ]; then
+                size_kb=$(random_range 5 100)
+            elif [ $roll -lt 90 ]; then
+                size_kb=$(random_range 100 2048)
+            else
+                size_kb=$(random_range 2048 10240)
+            fi
+
+            create_file "$filepath" $size_kb
+            zone_size=$((zone_size + size_kb))
+            total_size=$((total_size + size_kb))
+
+            # Assign to a random zone member if any exist
+            if [ ${#zone_users[@]} -gt 0 ]; then
+                owner="${zone_users[$((RANDOM % ${#zone_users[@]}))]}"
+                chown "$owner:$owner" "$filepath" 2>/dev/null || true
+            fi
+        done
     done
+
+    chmod -R 755 "$zone_root"
+    echo "  Done: $zone ~$((zone_size / 1024))MB" | tee -a "$LOG_FILE"
 done
 
-chmod -R 755 /mnt/efs/clinical_trials
-echo "  ✓ Clinical trials zone: ~$((zone1_size / 1024))MB" | tee -a "$LOG_FILE"
-
-# ============================================================================
-# DRUG DISCOVERY ZONE (Zone 2)
-# ============================================================================
-echo "" | tee -a "$LOG_FILE"
-echo "=== Creating Drug Discovery Zone Data ===" | tee -a "$LOG_FILE"
-
-mapfile -t discovery_templates < <(jq -r '.file_templates.discovery[]' "$CONFIG_FILE")
-mapfile -t discovery_dirs < <(jq -r '.directories.discovery[]' "$CONFIG_FILE")
-
-zone2_users=$(jq -r '.users[] | select(.zone_admin[] == "drug_discovery" or .zone_member[] == "drug_discovery") | .username' "$CONFIG_FILE")
-zone2_array=($zone2_users)
-zone2_size=0
-
-for dir in "${discovery_dirs[@]}"; do
-    [ -z "$dir" ] && continue
-    [ $zone2_size -ge $MAX_ZONE_KB ] && break
-    
-    dir_path="/mnt/efs/drug_discovery/$dir"
-    mkdir -p "$dir_path"
-    
-    num_files=$(random_range 8 15)
-    echo "  Creating $dir ($num_files files)..." | tee -a "$LOG_FILE"
-    
-    for ((i=1; i<=num_files; i++)); do
-        [ $zone2_size -ge $MAX_ZONE_KB ] && break
-        
-        template="${discovery_templates[$((RANDOM % ${#discovery_templates[@]}))]}"
-        filename=$(generate_filename "$template" "$RANDOM" "$i")
-        filepath="$dir_path/$filename"
-        
-        # Varied file sizes
-        roll=$((RANDOM % 100))
-        if [ $roll -lt 60 ]; then
-            size_kb=$(random_range 5 100)
-        elif [ $roll -lt 90 ]; then
-            size_kb=$(random_range 100 2048)
-        else
-            size_kb=$(random_range 2048 10240)
-        fi
-        
-        create_file "$filepath" $size_kb
-        zone2_size=$((zone2_size + size_kb))
-        total_size=$((total_size + size_kb))
-        
-        if [ ${#zone2_array[@]} -gt 0 ]; then
-            owner="${zone2_array[$((RANDOM % ${#zone2_array[@]}))]}"
-            chown "$owner:$owner" "$filepath" 2>/dev/null || true
-        fi
-    done
-done
-
-chmod -R 755 /mnt/efs/drug_discovery
-echo "  ✓ Drug discovery zone: ~$((zone2_size / 1024))MB" | tee -a "$LOG_FILE"
-
-# ============================================================================
-# REGULATORY ZONE (Zone 3)
-# ============================================================================
-echo "" | tee -a "$LOG_FILE"
-echo "=== Creating Regulatory Zone Data ===" | tee -a "$LOG_FILE"
-
-mapfile -t regulatory_templates < <(jq -r '.file_templates.regulatory[]' "$CONFIG_FILE")
-mapfile -t regulatory_dirs < <(jq -r '.directories.regulatory[]' "$CONFIG_FILE")
-
-zone3_users=$(jq -r '.users[] | select(.zone_admin[] == "regulatory" or .zone_member[] == "regulatory") | .username' "$CONFIG_FILE")
-zone3_array=($zone3_users)
-zone3_size=0
-
-for dir in "${regulatory_dirs[@]}"; do
-    [ -z "$dir" ] && continue
-    [ $zone3_size -ge $MAX_ZONE_KB ] && break
-    
-    dir_path="/mnt/efs/regulatory/$dir"
-    mkdir -p "$dir_path"
-    
-    num_files=$(random_range 8 15)
-    echo "  Creating $dir ($num_files files)..." | tee -a "$LOG_FILE"
-    
-    for ((i=1; i<=num_files; i++)); do
-        [ $zone3_size -ge $MAX_ZONE_KB ] && break
-        
-        template="${regulatory_templates[$((RANDOM % ${#regulatory_templates[@]}))]}"
-        filename=$(generate_filename "$template" "$RANDOM" "$i")
-        filepath="$dir_path/$filename"
-        
-        # Varied file sizes
-        roll=$((RANDOM % 100))
-        if [ $roll -lt 60 ]; then
-            size_kb=$(random_range 5 100)
-        elif [ $roll -lt 90 ]; then
-            size_kb=$(random_range 100 2048)
-        else
-            size_kb=$(random_range 2048 10240)
-        fi
-        
-        create_file "$filepath" $size_kb
-        zone3_size=$((zone3_size + size_kb))
-        total_size=$((total_size + size_kb))
-        
-        if [ ${#zone3_array[@]} -gt 0 ]; then
-            owner="${zone3_array[$((RANDOM % ${#zone3_array[@]}))]}"
-            chown "$owner:$owner" "$filepath" 2>/dev/null || true
-        fi
-    done
-done
-
-chmod -R 755 /mnt/efs/regulatory
-echo "  ✓ Regulatory zone: ~$((zone3_size / 1024))MB" | tee -a "$LOG_FILE"
-
-# ============================================================================
-# Summary
-# ============================================================================
 echo "" | tee -a "$LOG_FILE"
 echo "=== Shared Storage Summary ===" | tee -a "$LOG_FILE"
-echo "clinical_trials: $(du -sh /mnt/efs/clinical_trials 2>/dev/null | cut -f1)" | tee -a "$LOG_FILE"
-echo "drug_discovery:  $(du -sh /mnt/efs/drug_discovery 2>/dev/null | cut -f1)" | tee -a "$LOG_FILE"
-echo "regulatory:      $(du -sh /mnt/efs/regulatory 2>/dev/null | cut -f1)" | tee -a "$LOG_FILE"
+for zone in $zones; do
+    zdir="${SHARED_MOUNT}/${zone}"
+    echo "$zone: $(du -sh "$zdir" 2>/dev/null | cut -f1)" | tee -a "$LOG_FILE"
+done
 echo "" | tee -a "$LOG_FILE"
 echo "Total shared data: ~$((total_size / 1024))MB" | tee -a "$LOG_FILE"
 echo "=== Shared Data Generation Completed: $(date) ===" | tee -a "$LOG_FILE"
