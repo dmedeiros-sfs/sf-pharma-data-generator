@@ -1,24 +1,57 @@
 # Usage Guide
 
-## Complete Setup
+## Choosing a Dataset
 
-The easiest way to set up the demo environment is to run the main setup script:
+The generator ships with two datasets:
+
+| `--dataset` | Label                         | Shared Volume          |
+|-------------|-------------------------------|------------------------|
+| `pharma`    | Pharmaceutical Research       | `efs` (`/mnt/efs`)     |
+| `education` | University Research Computing | `campus` (`/mnt/campus`)|
+
+Every pipeline script accepts `--dataset pharma|education` (default `pharma`)
+or `--config PATH` for a custom config file. `setup_all.sh` and `cleanup.sh`
+also accept `--dataset both`.
+
+## Complete Setup
 
 ```bash
 sudo ./scripts/setup_all.sh
 ```
 
-This will:
-1. Create all 8 users with passwords matching their usernames
+Run without arguments, it prompts for the dataset:
+
+```
+Which dataset would you like to generate?
+  1) pharma     - Pharmaceutical Research
+  2) education  - University Research Computing
+  3) both
+Selection [1/2/3]:
+```
+
+Or select non-interactively:
+
+```bash
+sudo ./scripts/setup_all.sh --dataset pharma
+sudo ./scripts/setup_all.sh --dataset education
+sudo ./scripts/setup_all.sh --dataset both
+```
+
+For each selected dataset this will:
+1. Create that dataset's 8 users (passwords matching usernames)
 2. Generate personal research data in user home directories
-3. Generate shared zone data in /mnt/efs/
+3. Generate shared zone data in the dataset's shared volume
 4. Configure Starfish zones, tag sets, and permissions
+5. Run the archive demo for that dataset
+
+When `both` is selected, the pipeline runs once per dataset; the
+agent/server connection question (if any) is asked a single time.
 
 ### Setup Options
 
 ```bash
-# Clean existing setup and start fresh
-sudo ./scripts/setup_all.sh --clean-first
+# Clean the selected dataset(s) first, then build fresh
+sudo ./scripts/setup_all.sh --dataset education --clean-first
 
 # Skip specific steps
 sudo ./scripts/setup_all.sh --skip-users      # Don't create users
@@ -31,11 +64,11 @@ sudo ./scripts/setup_all.sh --skip-starfish   # Don't configure Starfish
 ### Creating Users
 
 ```bash
-sudo ./scripts/create_users.sh
+sudo ./scripts/create_users.sh --dataset education
 ```
 
-Creates 8 users with:
-- Password equal to username (e.g., user `dthompson` has password `dthompson`)
+Creates the dataset's 8 users with:
+- Password equal to username (e.g. `pchen` has password `pchen`)
 - Membership in `starfish` group for Starfish GUI access
 - Home directory with USER_INFO.txt file
 
@@ -43,108 +76,106 @@ Creates 8 users with:
 
 ```bash
 # User home directories
-sudo ./scripts/generate_data.sh
+sudo ./scripts/generate_data.sh --dataset education
 
-# Shared zone directories
-sudo ./scripts/generate_shared_data.sh
+# Shared zone directories (writes to /mnt/campus for education)
+sudo ./scripts/generate_shared_data.sh --dataset education
 ```
 
 ### Configuring Starfish
 
 ```bash
-sudo ./scripts/configure_starfish.sh
+sudo ./scripts/configure_starfish.sh --dataset education
 ```
 
-This creates:
-- 3 zones (clinical_trials, drug_discovery, regulatory)
-- 3 tag sets (document_status, confidentiality, therapeutic_area)
+This creates, for the selected dataset:
+- 3 zones
+- 3 tag sets
 - Zone admins and members
-- Global role for tag application
+- Global role for tag application (`PharmaTaggers` / `CampusTaggers`)
 - Zone roles for recovery
 
-**Note**: If the `sf` command is not available, the script prints the commands that would be executed. You can then run them manually or use them as reference.
+**Note**: If `sf` is not available, the script prints the commands that would be
+executed so you can run them manually or use them as reference.
 
 ## Cleanup
 
-### Remove Everything
+Cleanup is dataset-scoped. Always pass `--dataset` (default `pharma`):
 
 ```bash
-sudo ./scripts/cleanup.sh --all -y
+# Remove everything for one dataset (users, data, zones, tagsets, volumes, role)
+sudo ./scripts/cleanup.sh --dataset pharma -y
+sudo ./scripts/cleanup.sh --dataset education -y
+
+# Remove both datasets
+sudo ./scripts/cleanup.sh --dataset both -y
 ```
 
-### Remove Only Data (Keep Starfish Config)
+### Scope Flags
 
 ```bash
-sudo ./scripts/cleanup.sh --data-only -y
+# Remove only data (keep Starfish config)
+sudo ./scripts/cleanup.sh --dataset education --data-only -y
+
+# Remove only Starfish config (keep data)
+sudo ./scripts/cleanup.sh --dataset education --starfish-only -y
 ```
 
-This removes:
-- All 8 users and their home directories
-- Shared data in /mnt/efs/
+### Shared Archive Infrastructure
 
-### Remove Only Starfish Config (Keep Data)
+The simulated archive volumes/targets (`sim-nfs`, `sim-lustre`, `sim-s3` and
+their `atg-sim-*` targets) are shared by both datasets and are **not** removed
+by a normal dataset cleanup. Remove them explicitly only when no dataset needs
+them:
 
 ```bash
-sudo ./scripts/cleanup.sh --starfish-only -y
+sudo ./scripts/cleanup.sh --archive-demo -y       # shared infra only
+sudo ./scripts/cleanup_archive_demo.sh -y          # standalone equivalent
+sudo ./scripts/cleanup.sh --dataset both --all -y  # datasets + shared infra
 ```
-
-This removes:
-- All zones
-- All tag sets
-- Global roles
 
 ### Interactive Mode
 
-Without `-y`, the cleanup script will prompt for confirmation:
+Without `-y`, cleanup prompts for confirmation:
 
 ```bash
-sudo ./scripts/cleanup.sh --all
+sudo ./scripts/cleanup.sh --dataset both
 # Will prompt: "Are you sure? (type 'yes' to confirm):"
 ```
 
 ## Viewing Status
 
 ```bash
-./scripts/stats.sh
+./scripts/stats.sh --dataset education
 ```
 
-Displays:
-- Which users exist
-- Data sizes per user
-- Shared zone sizes
-- Starfish configuration (if sf command available)
-- Sample directory listings
+Displays which users exist, data sizes per user, shared zone sizes, Starfish
+configuration (if `sf` is available), and sample directory listings for the
+selected dataset.
 
 ## Testing User Access
 
-### Login as Zone Admin
+### pharma — Login as Zone Admin
 
 ```bash
-su - dthompson
-# Password: dthompson
-
-# User can see clinical_trials zone
+su - dthompson        # Password: dthompson
 sf zone list
 sf query "path:clinical_trials:" --limit 10
 ```
 
-### Login as Zone Member
+### education — Login as Zone Admin
 
 ```bash
-su - sleung
-# Password: sleung
-
-# User can see clinical_trials zone but cannot add members
-sf zone member list clinical_trials
+su - pchen            # Password: pchen
+sf zone list
+sf query "path:genomics_lab:" --limit 10
 ```
 
 ### Login as User Without Zone Access
 
 ```bash
-su - rmorgan
-# Password: rmorgan
-
-# User can only see their own data
+su - rmorgan          # pharma, Password: rmorgan
+su - dnguyen          # education, Password: dnguyen
 ls -la ~/research/
 ```
 
@@ -153,21 +184,32 @@ ls -la ~/research/
 After logging in as a zone member:
 
 ```bash
-# Apply a tag
-sf tag add document_status:draft "pharma_vol:/clinical_trials/phase1_studies/protocol_12345_v1.pdf"
+# pharma
+sf tag add document_status:draft "efs:/clinical_trials/phase1_studies/<file>"
 
-# List tags on a file
-sf query "path:clinical_trials:" --with-tags
+# education
+sf tag add data_classification:ferpa_protected "campus:/genomics_lab/<file>"
 
 # Search by tag
-sf query "tag:document_status:draft"
+sf query "tag:project_status:active"
 ```
 
 ## Customization
 
+### Adding a New Dataset
+
+Copy an existing config and edit it:
+
+```bash
+cp config/education_config.json config/biotech_config.json
+# edit dataset / shared_volume / global_role / home / users / zones /
+# tagsets / file_templates / archive_demo
+sudo ./scripts/setup_all.sh --config config/biotech_config.json
+```
+
 ### Modifying Users
 
-Edit `config/pharma_config.json` to add, remove, or modify users:
+Edit the `users` section of the relevant config:
 
 ```json
 {
@@ -178,7 +220,7 @@ Edit `config/pharma_config.json` to add, remove, or modify users:
       "role": "Some Role",
       "department": "Some Department",
       "zone_admin": [],
-      "zone_member": ["clinical_trials"]
+      "zone_member": ["genomics_lab"]
     }
   ]
 }
@@ -186,7 +228,8 @@ Edit `config/pharma_config.json` to add, remove, or modify users:
 
 ### Adding Zones
 
-Edit the `zones` section in `config/pharma_config.json`:
+Each zone references a `template_key` that selects which `file_templates` entry
+drives its generated files, and the dataset's shared volume:
 
 ```json
 {
@@ -194,8 +237,9 @@ Edit the `zones` section in `config/pharma_config.json`:
     {
       "name": "new_zone",
       "description": "Description of new zone",
-      "path": "/mnt/efs/new_zone",
-      "volume": "pharma_vol",
+      "path": "/mnt/campus/new_zone",
+      "volume": "campus",
+      "template_key": "genomics",
       "capabilities": ["TagApplier", "RecoverExecutor"]
     }
   ]
@@ -203,8 +247,6 @@ Edit the `zones` section in `config/pharma_config.json`:
 ```
 
 ### Adding Tag Sets
-
-Edit the `tagsets` section:
 
 ```json
 {
@@ -223,22 +265,18 @@ Edit the `tagsets` section:
 
 ### "jq: command not found"
 
-Install jq:
 ```bash
 # RHEL/CentOS
 sudo yum install jq
-
 # Ubuntu/Debian
 sudo apt-get install jq
 ```
 
 ### "openssl: command not found"
 
-Install openssl:
 ```bash
 # RHEL/CentOS
 sudo yum install openssl
-
 # Ubuntu/Debian
 sudo apt-get install openssl
 ```
@@ -247,7 +285,7 @@ sudo apt-get install openssl
 
 The Starfish CLI is not in PATH. Either:
 1. Add Starfish to PATH: `export PATH=$PATH:/opt/starfish/bin`
-2. Or run configure_starfish.sh and use the printed commands manually
+2. Or run the configure step and use the printed commands manually
 
 ### User Cannot Login
 
@@ -261,4 +299,4 @@ Check that:
 Check that:
 1. User is a zone member: `sf zone member list zonename`
 2. Zone has correct path: `sf zone path list zonename`
-3. User has GUI access: User must be in `starfish-users` group
+3. The dataset's shared volume exists and is scanned
