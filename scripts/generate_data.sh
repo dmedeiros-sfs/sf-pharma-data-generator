@@ -59,9 +59,11 @@ create_file() {
     local filepath=$1
     local size_kb=$2
 
-    dd if=/dev/urandom of="$filepath" bs=1K count=$size_kb status=none 2>/dev/null || \
-    head -c ${size_kb}K /dev/urandom > "$filepath" 2>/dev/null || \
-    truncate -s ${size_kb}K "$filepath"
+    # Sparse allocation: gives Starfish the right size/metadata to scan at
+    # ~zero CPU/IO. Avoids hammering /dev/urandom, which pins a core on small
+    # instances (r8i.large) and helps lock the box up during data gen.
+    truncate -s ${size_kb}K "$filepath" 2>/dev/null || \
+    dd if=/dev/zero of="$filepath" bs=1K count=$size_kb status=none 2>/dev/null
 }
 
 total_size=0
