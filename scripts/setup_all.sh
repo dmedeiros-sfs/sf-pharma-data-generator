@@ -19,6 +19,38 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# --- Resource guard ----------------------------------------------------------
+# On a small instance (r8i.large: 2 vCPU / 16GB) the agent scanner, archive
+# jobs and PostgreSQL can saturate CPU/memory to the point you can't even SSH
+# in. Re-exec the whole pipeline inside a systemd scope that caps CPU/memory so
+# the OS stays responsive. Tunables via env; disable with --no-cgroup.
+SF_CPU_QUOTA="${SF_CPU_QUOTA:-150%}"   # 1.5 of 2 cores; leaves headroom for sshd
+SF_MEM_HIGH="${SF_MEM_HIGH:-10G}"      # soft throttle before reclaim
+SF_MEM_MAX="${SF_MEM_MAX:-12G}"        # hard cap; OOM hits the demo, not the OS
+
+USE_CGROUP=true
+FWD_ARGS=()
+for _a in "$@"; do
+    if [ "$_a" = "--no-cgroup" ]; then
+        USE_CGROUP=false
+    else
+        FWD_ARGS+=("$_a")
+    fi
+done
+
+if [ "$USE_CGROUP" = true ] && [ -z "${SF_IN_SCOPE:-}" ] && command -v systemd-run &>/dev/null; then
+    echo "Re-running inside capped systemd scope (CPU=$SF_CPU_QUOTA, MemMax=$SF_MEM_MAX)."
+    echo "  Disable with --no-cgroup; tune via SF_CPU_QUOTA / SF_MEM_HIGH / SF_MEM_MAX."
+    exec systemd-run --scope --quiet --slice=sfdemo.slice \
+        -p CPUQuota="$SF_CPU_QUOTA" -p MemoryHigh="$SF_MEM_HIGH" -p MemoryMax="$SF_MEM_MAX" \
+        env SF_IN_SCOPE=1 nice -n 10 ionice -c2 -n7 \
+        bash "${BASH_SOURCE[0]}" "${FWD_ARGS[@]}"
+fi
+# Strip --no-cgroup before the normal parser sees it (also covers the inner run).
+set -- "${FWD_ARGS[@]}"
+# -----------------------------------------------------------------------------
+
 source "$SCRIPT_DIR/lib/config.sh"
 LOG_FILE="$SCRIPT_DIR/../output/setup_all.log"
 mkdir -p "$SCRIPT_DIR/../output"
@@ -51,6 +83,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --clean-first         Run cleanup before setup"
             echo "  --agent-address URL   Agent URL for volume creation"
             echo "  --server              Running on the Starfish server"
+            echo "  --no-cgroup           Don't re-exec inside a capped systemd scope"
             echo "  -h, --help            Show this help"
             exit 0
             ;;
