@@ -223,6 +223,8 @@ Key config sections:
 
 - `jq` - JSON processor (required)
 - `openssl` - For password hashing (required)
+- `ffmpeg` and `exiftool` - Required when generating `.jpg` or `.mp4` templates
+  (`sudo apt-get install ffmpeg libimage-exiftool-perl`)
 - `sf` - Starfish CLI (optional - scripts print commands if not available)
 - Root/sudo access for user creation
 
