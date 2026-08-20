@@ -151,7 +151,9 @@
       "qc_report_{id}.html",
       "expression_matrix_{date}.csv",
       "reference_{id}.fasta",
-      "pipeline_run_{date}.log"
+      "pipeline_run_{date}.log",
+      "gel_image_{id}.jpg",
+      "microscopy_timelapse_{id}.mp4"
     ],
     "hpc": [
       "sim_output_{id}_{num}.h5",
@@ -161,7 +163,9 @@
       "mesh_{id}.vtk",
       "trajectory_{date}.dcd",
       "benchmark_{num}.json",
-      "post_analysis_{id}.npz"
+      "post_analysis_{id}.npz",
+      "cluster_dashboard_{id}.jpg",
+      "simulation_render_{id}.mp4"
     ],
     "commons": [
       "grant_proposal_{id}_v{num}.docx",
@@ -171,7 +175,9 @@
       "poster_{id}.pptx",
       "data_management_plan_{id}.docx",
       "supplementary_{date}.xlsx",
-      "preprint_{id}.pdf"
+      "preprint_{id}.pdf",
+      "conference_photo_{id}.jpg",
+      "seminar_recording_{date}.mp4"
     ],
     "academic": [
       "lecture_notes_{id}.pdf",
@@ -179,7 +185,9 @@
       "thesis_draft_{id}_v{num}.docx",
       "literature_review_{num}.pdf",
       "analysis_notebook_{id}.ipynb",
-      "seminar_slides_{date}.pptx"
+      "seminar_slides_{date}.pptx",
+      "fieldwork_photo_{id}.jpg",
+      "lecture_recording_{date}.mp4"
     ]
   },
 

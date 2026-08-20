@@ -13,6 +13,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/config.sh"
+source "$SCRIPT_DIR/lib/media.sh"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -58,6 +59,16 @@ generate_filename() {
 create_file() {
     local filepath=$1
     local size_kb=$2
+    local media_status
+
+    if create_media_file "$filepath" "$size_kb"; then
+        return
+    else
+        media_status=$?
+    fi
+    if [ "$media_status" -eq 1 ]; then
+        return 1
+    fi
 
     dd if=/dev/urandom of="$filepath" bs=1K count=$size_kb status=none 2>/dev/null || \
     truncate -s ${size_kb}K "$filepath"

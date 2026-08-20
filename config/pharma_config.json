@@ -151,7 +151,9 @@
       "informed_consent_{id}.pdf",
       "crf_data_{date}.sas7bdat",
       "randomization_list_{id}.csv",
-      "lab_results_{date}_{num}.csv"
+      "lab_results_{date}_{num}.csv",
+      "site_visit_photo_{id}.jpg",
+      "patient_training_video_{id}.mp4"
     ],
     "discovery": [
       "compound_{id}_assay.sdf",
@@ -161,7 +163,9 @@
       "admet_results_{id}.csv",
       "protein_structure_{id}.pdb",
       "docking_results_{date}.log",
-      "synthesis_route_{id}.cdxml"
+      "synthesis_route_{id}.cdxml",
+      "microscopy_image_{id}.jpg",
+      "assay_capture_video_{id}.mp4"
     ],
     "regulatory": [
       "nda_module_{num}_{id}.pdf",
@@ -171,14 +175,18 @@
       "labeling_{id}_v{num}.docx",
       "approval_letter_{date}.pdf",
       "deficiency_response_{id}.pdf",
-      "annual_report_{date}.pdf"
+      "annual_report_{date}.pdf",
+      "facility_inspection_photo_{id}.jpg",
+      "compliance_training_video_{date}.mp4"
     ],
     "research": [
       "experiment_{id}_{num}.xlsx",
       "analysis_results_{date}.csv",
       "research_notes_{id}.docx",
       "literature_review_{num}.pdf",
-      "data_summary_{date}_{id}.pptx"
+      "data_summary_{date}_{id}.pptx",
+      "lab_photo_{id}.jpg",
+      "presentation_recording_{id}.mp4"
     ]
   },
 
