@@ -43,6 +43,7 @@ For each selected dataset this will:
 3. Generate shared zone data in the dataset's shared volume
 4. Configure Starfish zones, tag sets, and permissions
 5. Run the archive demo for that dataset
+6. Generate and scan the deterministic Academy lab fixtures (`pharma` only)
 
 When `both` is selected, the pipeline runs once per dataset; the
 agent/server connection question (if any) is asked a single time.
