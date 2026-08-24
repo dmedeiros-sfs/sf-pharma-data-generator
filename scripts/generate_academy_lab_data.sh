@@ -14,6 +14,8 @@ source "$SCRIPT_DIR/lib/media.sh"
 
 HOME_ROOT="${ACADEMY_HOME_ROOT:-/home}"
 LOG_FILE="${ACADEMY_LOG_FILE:-$SCRIPT_DIR/../output/academy_lab_data.log}"
+ACADEMY_USERS=(rmorgan sleung akim kpatel mwatson jbaker)
+
 mkdir -p "$(dirname "$LOG_FILE")"
 
 log() {
@@ -96,7 +98,7 @@ done
 printf 'small report\n' > "$sf03_api_dir/report1.txt"
 
 # Match each personal volume's normal ownership when the users exist.
-for username in rmorgan sleung akim kpatel mwatson jbaker; do
+for username in "${ACADEMY_USERS[@]}"; do
     if id "$username" &>/dev/null; then
         chown -R "$username:$username" "$HOME_ROOT/$username/lab-scratch"
     fi
@@ -105,7 +107,7 @@ done
 # setup_all.sh runs this after the archive demo. Refresh any already-configured
 # personal volumes so the Academy labs can start without manual setup scans.
 if command -v sf &>/dev/null; then
-    for username in rmorgan sleung akim kpatel mwatson jbaker; do
+    for username in "${ACADEMY_USERS[@]}"; do
         if sf volume show "$username" &>/dev/null; then
             log "Scanning Academy fixtures in $username:"
             sf scan start -t diff "$username:" --wait 2>&1 | tee -a "$LOG_FILE"
