@@ -4,7 +4,8 @@
 #
 # Prompts for which dataset(s) to build (pharma / education / both), then for
 # each selected dataset runs: create users -> generate home data ->
-# generate shared zone data -> configure Starfish -> archive demo.
+# generate shared zone data -> configure Starfish -> archive demo. The pharma
+# pipeline then adds the deterministic Academy lab fixtures.
 #
 # Options:
 #   --dataset NAME     pharma | education | both  (skips the interactive prompt)
@@ -173,6 +174,11 @@ for ds in "${DATASETS[@]}"; do
         "$SCRIPT_DIR/setup_archive_demo.sh" --dataset "$ds" $(sf_target_args)
     else
         echo "Skipping Starfish configuration (--skip-starfish)" | tee -a "$LOG_FILE"
+    fi
+
+    if [ "$SKIP_DATA" = false ] && [ "$ds" = "pharma" ]; then
+        echo "=== STEP 6 [$ds]: Generating Academy Lab Fixtures ===" | tee -a "$LOG_FILE"
+        "$SCRIPT_DIR/generate_academy_lab_data.sh"
     fi
 done
 
