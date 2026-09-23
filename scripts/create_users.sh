@@ -42,12 +42,6 @@ if ! command -v openssl &> /dev/null; then
     exit 1
 fi
 
-# Ensure starfish group exists
-if ! getent group starfish &>/dev/null; then
-    echo "Creating 'starfish' group..." | tee -a "$LOG_FILE"
-    groupadd starfish
-fi
-
 # Get all users from config
 users=$(cfg '.users[] | .username')
 
@@ -65,18 +59,18 @@ for username in $users; do
             chmod 755 "/home/$username"
             echo "  Created missing home directory for $username" | tee -a "$LOG_FILE"
         fi
-        # Ensure user is in starfish group
-        if ! groups "$username" | grep -q '\bstarfish\b'; then
-            usermod -aG starfish "$username"
-            echo "  Added $username to starfish group" | tee -a "$LOG_FILE"
+        # The starfish group grants administrative access. Zone users receive access through their configured zone membership instead.
+        if getent group starfish &>/dev/null && id -nG "$username" | tr ' ' '\n' | grep -Fxq starfish; then
+            gpasswd -d "$username" starfish
+            echo "  Removed $username from privileged starfish group" | tee -a "$LOG_FILE"
         fi
         continue
     fi
 
     echo "Creating user: $username ($full_name)" | tee -a "$LOG_FILE"
 
-    # Create user and add to starfish group (chroot-compatible method)
-    useradd -m -s /bin/bash -c "$full_name" -G starfish "$username"
+    # Create an unprivileged user; Starfish access is assigned by zone.
+    useradd -m -s /bin/bash -c "$full_name" "$username"
 
     # Set password = username using openssl (chroot-compatible)
     # This avoids interactive password prompts
@@ -107,4 +101,3 @@ echo "" | tee -a "$LOG_FILE"
 echo "=== User Creation Completed: $(date) ===" | tee -a "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"
 echo "Summary: All users created with password = username" | tee -a "$LOG_FILE"
-echo "Users are members of the 'starfish' group for GUI access" | tee -a "$LOG_FILE"
