@@ -58,7 +58,7 @@ sudo ./scripts/setup_archive_demo.sh  --dataset education
 
 8 users, 3 zones, 3 tag sets. Shared volume `efs` at `/mnt/efs`.
 
-**Users** (password = username, all added to the `starfish` group):
+**Users** (password = username; access is controlled by zone assignment):
 
 | Username   | Name                | Role                        | Zone Admin                 | Zone Member                     |
 |------------|---------------------|-----------------------------|----------------------------|---------------------------------|
@@ -81,7 +81,7 @@ sudo ./scripts/setup_archive_demo.sh  --dataset education
 
 8 users, 3 zones, 3 tag sets. Shared volume `campus` at `/mnt/campus`.
 
-**Users** (password = username, all added to the `starfish` group):
+**Users** (password = username; access is controlled by zone assignment):
 
 | Username  | Name                 | Role                        | Zone Admin                  | Zone Member                  |
 |-----------|----------------------|-----------------------------|-----------------------------|------------------------------|
@@ -115,7 +115,7 @@ sudo ./scripts/setup_archive_demo.sh  --dataset education
 | Script                     | Purpose                                              |
 |----------------------------|------------------------------------------------------|
 | `setup_all.sh`             | Complete setup (prompts pharma/education/both)       |
-| `create_users.sh`          | Create Linux users with starfish group membership    |
+| `create_users.sh`          | Create unprivileged Linux demo users                  |
 | `generate_data.sh`         | Generate user home directory data                    |
 | `generate_shared_data.sh`  | Generate shared zone data in the dataset's volume    |
 | `configure_starfish.sh`    | Create zones, tag sets, assign permissions           |
@@ -243,6 +243,7 @@ All operations are logged to `output/` (e.g. `user_creation.log`,
    can be re-run safely.
 4. **Chroot-compatible** user creation avoids interactive password prompts:
    ```bash
-   useradd -G starfish "$USER"
+   useradd -m -s /bin/bash "$USER"
    sed -i "s|^${USER}:[^:]*:|${USER}:$(openssl passwd -6 "$PW"):|" /etc/shadow
    ```
+

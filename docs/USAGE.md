@@ -70,7 +70,6 @@ sudo ./scripts/create_users.sh --dataset education
 
 Creates the dataset's 8 users with:
 - Password equal to username (e.g. `pchen` has password `pchen`)
-- Membership in `starfish` group for Starfish GUI access
 - Home directory with USER_INFO.txt file
 
 ### Generating Data
@@ -292,7 +291,7 @@ The Starfish CLI is not in PATH. Either:
 
 Check that:
 1. User exists: `id username`
-2. User is in starfish group: `groups username`
+2. User is not in the privileged `starfish` group: `groups username`
 3. Password is set correctly: `sudo passwd username`
 
 ### Zone Not Visible to User
@@ -301,3 +300,4 @@ Check that:
 1. User is a zone member: `sf zone member list zonename`
 2. Zone has correct path: `sf zone path list zonename`
 3. The dataset's shared volume exists and is scanned
+
